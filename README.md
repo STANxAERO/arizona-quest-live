@@ -1,12 +1,20 @@
 # ARIZONA Quest Live
 
-[Русская инструкция](README.ru.md) · [Downloads](https://github.com/STANxAERO/arizona-quest-live/releases)
+[Русская инструкция](README.ru.md)
+
+## Download — v0.5.2
+
+[![Download Windows ZIP](docs/download-buttons/windows-en.svg)](https://github.com/STANxAERO/arizona-quest-live/releases/download/v0.5.2/ARIZONA-Quest-Live-Windows-x64-v0.5.2.zip) [![Download macOS ZIP](docs/download-buttons/macos-en.svg)](https://github.com/STANxAERO/arizona-quest-live/releases/download/v0.5.2/ARIZONA-Quest-Live-macOS-arm64-v0.5.2.zip)
+
+[Download Windows ZIP](https://github.com/STANxAERO/arizona-quest-live/releases/download/v0.5.2/ARIZONA-Quest-Live-Windows-x64-v0.5.2.zip) · [Download macOS ZIP](https://github.com/STANxAERO/arizona-quest-live/releases/download/v0.5.2/ARIZONA-Quest-Live-macOS-arm64-v0.5.2.zip)
+
+Free download · Preview release · [Release notes](https://github.com/STANxAERO/arizona-quest-live/releases/tag/v0.5.2) · [SHA-256 checksums](https://github.com/STANxAERO/arizona-quest-live/releases/download/v0.5.2/SHA256SUMS.txt) · [All versions](https://github.com/STANxAERO/arizona-quest-live/releases)
 
 Local, wireless, single-eye viewing for up to four Meta Quest headsets. Created at ARIZONA Hip-Hop Culture Center for general VR viewing. No cloud relay, subscription, or WebStream VR required. This is an independent launcher around [scrcpy](https://github.com/Genymobile/scrcpy) and Android Debug Bridge (ADB), not a Meta product or a fork of WebStream VR.
 
-## Download and install
+## Installation
 
-**Windows 11 x64:** download the Windows ZIP from Releases, extract all files into a writable folder, and open `ARIZONA Quest Live.exe`. On first run, approve downloading the official scrcpy 5.0.1 archive; its SHA-256 is verified. The launcher uses Windows PowerShell 5.1 and .NET Framework 4.x. No administrator rights normally needed. If Windows marks downloaded scripts as remote, inspect the release checksum and source, then use Properties → Unblock on the trusted ZIP before extracting again (or unblock only these scripts). Do not disable SmartScreen or change your system-wide PowerShell execution policy.
+**Windows 11 x64:** download the Windows ZIP using the button above, extract all files into a writable folder, and open `ARIZONA Quest Live.exe`. On first run, approve downloading the official scrcpy 5.0.1 archive; its SHA-256 is verified. The launcher uses Windows PowerShell 5.1 and .NET Framework 4.x. No administrator rights normally needed. If Windows marks downloaded scripts as remote, inspect the release checksum and source, then use Properties → Unblock on the trusted ZIP before extracting again (or unblock only these scripts). Do not disable SmartScreen or change your system-wide PowerShell execution policy.
 
 **macOS 14+ on Apple Silicon:** download the macOS ZIP, extract it, and move the app to Applications. Install [Homebrew](https://brew.sh/) if needed; open Terminal and run:
 ```sh

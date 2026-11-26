@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="74" viewBox="0 0 300 74" role="img" aria-label="Скачать для macOS">
+<rect x="0.5" y="0.5" width="299" height="73" rx="12" fill="#303944" stroke="#ffffff" stroke-opacity=".18"/>
+<g transform="translate(17 22)"><g stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="28" height="20" rx="2"/><path d="M0 27h34M13 23l-2 4m10-4 2 4"/></g></g>
+<g font-family="Arial, Helvetica, sans-serif" fill="#fff"><text x="64" y="30" font-size="18" font-weight="700">Скачать для macOS</text><text x="64" y="51" font-size="12.5" opacity=".88">macOS 14+ · Apple Silicon · ZIP</text></g>
+<g stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(267 23)"><path d="M8 0v17M2 11l6 6 6-6M0 22h16"/></g>
+</svg>
