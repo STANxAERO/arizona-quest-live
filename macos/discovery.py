@@ -19,7 +19,7 @@ def info(addr):
     w,h=map(int,m.groups())
     if w<h or w%4 or h%2: return None
     override=re.search(r"Override size:\s*(\d+x\d+)",size)
-    return dict(serial=serial,address=addr,model=model,w=w,h=h,override=override[1] if override else "")
+    return dict(serial=serial,address=addr,model=model,w=w,h=h,override=override[1] if override else "",build=run("-s",addr,"shell","getprop","ro.build.version.incremental"))
 def local_networks():
     raw=subprocess.run(["/sbin/ifconfig"],capture_output=True,text=True).stdout
     networks=set()

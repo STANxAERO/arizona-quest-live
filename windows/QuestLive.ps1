@@ -18,8 +18,15 @@ if($cfg.Count -lt $capacity){
  $cfg | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding UTF8
 }
 foreach($entry in $cfg){if(!$entry.PSObject.Properties['wide']){$entry|Add-Member -NotePropertyName wide -NotePropertyValue $false}}
+foreach($entry in $cfg){if(!$entry.PSObject.Properties['lastBuild']){$entry|Add-Member -NotePropertyName lastBuild -NotePropertyValue ''}}
+foreach($entry in $cfg){if(!$entry.PSObject.Properties['firmwarePending']){$entry|Add-Member -NotePropertyName firmwarePending -NotePropertyValue $false}}
 if($Check){ Write-Output ('Settings initialized: '+$cfg.Count); $mutex.ReleaseMutex();$mutex.Dispose();return }
 $viewer=Join-Path $root 'scrcpy\scrcpy.exe'
+function Get-Viewer {
+ $f=Join-Path $data 'engines\state.json'
+ if(Test-Path $f){try{$st=ConvertFrom-Json -InputObject (Get-Content $f -Raw -Encoding UTF8);if($st.active -match '^v\d+\.\d+(\.\d+)?$'){$p=Join-Path $data ('engines\'+$st.active+'\scrcpy.exe');if(Test-Path $p){return $p}}}catch{}}
+ return (Join-Path $root 'scrcpy\scrcpy.exe')
+}
 $adb=Join-Path $root 'scrcpy\adb.exe'
 $p=Get-Process adb -ErrorAction SilentlyContinue|Select-Object -First 1
 if($p -and $p.Path){$adb=$p.Path}
@@ -210,8 +217,13 @@ function Request-Slot([int]$i){
  if(!$streams[$i] -or $streams[$i].HasExited){Set-Status $i 'Finding headset...'}
 }
 function Open-Viewer([int]$i,$info){
+ $viewer=Get-Viewer
  if(!$want[$i] -or ($streams[$i] -and !$streams[$i].HasExited)){return}
  if($info.override){Set-Status $i ('Non-default display size: '+$info.override);return}
+ if($info.build){
+  if($cfg[$i].lastBuild -and $cfg[$i].lastBuild -ne $info.build){$cfg[$i].firmwarePending=$true;$checkState.firmware=$true;$maintenanceBtn.Name='Firmware changed';$maintenanceBtn.Text=Tr $maintenanceBtn.Name}
+  $cfg[$i].lastBuild=$info.build
+ }
  $cfg[$i].address=$info.address;$slots[$i].addr.Text=$info.address
  Save-Cfg
  $half=[int]($info.w/2);$x=if($cfg[$i].eye -eq 'Right'){$half}else{0}
@@ -317,7 +329,7 @@ function Refresh-Layout {
   [QuestRounded]::Apply($u.panel,14)
  }
  $bottom=if($expanded[2] -or $expanded[3]){568}else{415}
- if($footer){$footer.Top=$bottom;$form.ClientSize=New-Object Drawing.Size(720,($bottom+39))}
+ if($footer){$footer.Top=$bottom;if($maintenanceBtn){$maintenanceBtn.Top=$bottom};$form.ClientSize=New-Object Drawing.Size(720,($bottom+39))}
 }
 function Refresh-Language {
  $controls=@($form.Controls | ForEach-Object {$_})
@@ -396,13 +408,67 @@ $timer.Add_Tick({
   }
  }catch{$state.next=[datetime]::Now.AddSeconds(7);$form.Text='ARIZONA | QUEST LIVE 4 - retrying'}
 })
-$footer=Label 'Correction is approximate; switching modes restarts active streams.' 20 415 680 30
+$footer=Label 'Correction is approximate; switching modes restarts active streams.' 20 415 495 30
+$maintenanceBtn=Button 'Maintenance' 520 415 180 30
+$ru['Maintenance']='Диагностика'
+$ru['Firmware changed']='Прошивка изменена'
+$ru['Update available']='Есть обновление'
+$checkState=@{job=$null;out=$null;err=$null;next=[datetime]::MinValue;result='';available=$false;firmware=(@($cfg|Where-Object{$_.firmwarePending}).Count -gt 0)}
+function Start-MaintenanceJob([string]$action,[int]$slot){
+ $p=New-Object Diagnostics.Process
+ $p.StartInfo.FileName=Join-Path $PSHOME 'powershell.exe'
+ $p.StartInfo.Arguments='-NoProfile -ExecutionPolicy RemoteSigned -File "'+(Join-Path $root 'Maintenance.ps1')+'" -Action '+$action+' -Slot '+$slot
+ $p.StartInfo.UseShellExecute=$false;$p.StartInfo.CreateNoWindow=$true
+ $p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
+ $p.StartInfo.StandardOutputEncoding=[Text.Encoding]::UTF8
+ [void]$p.Start();return @{p=$p;out=$p.StandardOutput.ReadToEndAsync();err=$p.StandardError.ReadToEndAsync()}
+}
+$updateTimer=New-Object Windows.Forms.Timer;$updateTimer.Interval=1000
+$updateTimer.Add_Tick({
+ try{
+  if($checkState.job){
+   $j=$checkState.job
+   if($j.p.HasExited){$j.p.WaitForExit();$checkState.result=$j.out.Result;$j.p.Dispose();$checkState.job=$null;$checkState.next=[datetime]::Now.AddHours(6)
+    $v=ConvertFrom-Json -InputObject $checkState.result
+    if($v.latest -and $v.engine -match '^scrcpy ([0-9.]+)'){$ver=$Matches[1];$checkState.available=([version]($v.latest.TrimStart('v')) -gt [version]$ver) -or ([version]($v.app.TrimStart('v')) -gt [version]'0.5.0')}
+    $maintenanceBtn.Name=if($checkState.available){'Update available'}elseif($checkState.firmware){'Firmware changed'}else{'Maintenance'};$maintenanceBtn.Text=Tr $maintenanceBtn.Name
+   }
+  }elseif([datetime]::Now -ge $checkState.next){$checkState.job=Start-MaintenanceJob 'check' 0}
+ }catch{$checkState.next=[datetime]::Now.AddMinutes(10);$checkState.job=$null}
+})
+$maintenanceBtn.Add_Click({
+ $dlg=New-Object Windows.Forms.Form;$dlg.Text=Tr 'Maintenance';$dlg.StartPosition='CenterParent';$dlg.ClientSize=New-Object Drawing.Size(680,430);$dlg.BackColor=$form.BackColor;$dlg.ForeColor=$form.ForeColor;$dlg.Font=$form.Font
+ $isRU=$uiState.language -eq 'RU'
+ $hint=New-Object Windows.Forms.Label;$hint.SetBounds(16,12,648,50);$hint.Text=if($isRU){'Обновления не устанавливаются автоматически. Для теста захвата и смены движка остановите все потоки. Запустите Graffism в выбранном шлеме.'}else{'No automatic installs. Stop all streams before capture tests or engine changes. Open Graffism in the selected headset.'};$dlg.Controls.Add($hint)
+ $select=New-Object Windows.Forms.ComboBox;$select.SetBounds(16,66,200,28);$select.DropDownStyle='DropDownList';foreach($k in 1..4){[void]$select.Items.Add((Tr 'Headset')+' '+$k)};$select.SelectedIndex=0;$dlg.Controls.Add($select)
+ $output=New-Object Windows.Forms.TextBox;$output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical';$output.SetBounds(16,198,648,180);$output.BackColor=$panelColor;$output.ForeColor=$form.ForeColor;$output.Text=$checkState.result;$dlg.Controls.Add($output)
+ $ds=@{job=$null;action='';slot=0}
+ $actions=@('check','diagnose','capture','stage','test','activate','rollback')
+ $names=if($isRU){@('Обновления','ADB','Тест захвата','Загрузить движок','Тест нового','Применить','Откат')}else{@('Check updates','Check ADB','Capture test','Stage engine','Test candidate','Activate','Rollback')}
+ for($k=0;$k -lt $actions.Count;$k++){
+  $b=New-Object Windows.Forms.Button;$b.Text=$names[$k];$b.Tag=$actions[$k];$b.SetBounds((16+164*($k%4)),(110+40*[int][Math]::Floor($k/4)),156,32);$b.FlatStyle='Flat';$b.FlatAppearance.BorderSize=0;$b.BackColor=$idleColor;$b.ForeColor=$form.ForeColor;$dlg.Controls.Add($b);[QuestRounded]::Apply($b,7)
+  $b.Add_Click({param($sender,$e)
+   if($ds.job){return}
+   if($sender.Tag -in @('capture','test','activate','rollback') -and (($want -contains $true) -or @($streams|Where-Object{$_ -and !$_.HasExited}).Count -gt 0 -or $state.job)){$output.Text=if($isRU){'Сначала остановите все потоки и дождитесь завершения.'}else{'Stop all streams and wait for them to exit.'};return}
+   $output.Text='…';$ds.action=$sender.Tag;$ds.slot=$select.SelectedIndex;try{$ds.job=Start-MaintenanceJob $sender.Tag $select.SelectedIndex}catch{$output.Text=$_.Exception.Message}
+  })
+ }
+ $stopButton=New-Object Windows.Forms.Button;$stopButton.SetBounds(16,386,200,30);$stopButton.Text=Tr 'Stop all';$dlg.Controls.Add($stopButton);$stopButton.Add_Click({for($k=0;$k -lt $capacity;$k++){Stop-Slot $k}})
+ $link=New-Object Windows.Forms.Button;$link.SetBounds(232,386,200,30);$link.Text=if($isRU){'Релизы приложения'}else{'App releases'};$dlg.Controls.Add($link);$link.Add_Click({Start-Process 'https://github.com/STANxAERO/arizona-quest-live/releases'})
+ $dt=New-Object Windows.Forms.Timer;$dt.Interval=500;$dt.Add_Tick({if($ds.job -and $ds.job.p.HasExited){$j=$ds.job;$j.p.WaitForExit();$output.Text=$j.out.Result;if(!$output.Text){$output.Text=$j.err.Result};$j.p.Dispose();$ds.job=$null
+  if($ds.action -eq 'capture'){try{$v=ConvertFrom-Json -InputObject $output.Text;if($v.passed -and $v.build -eq $cfg[$ds.slot].lastBuild){$cfg[$ds.slot].firmwarePending=$false;Save-Cfg;$checkState.firmware=@($cfg|Where-Object{$_.firmwarePending}).Count -gt 0;$maintenanceBtn.Name=if($checkState.available){'Update available'}elseif($checkState.firmware){'Firmware changed'}else{'Maintenance'};$maintenanceBtn.Text=Tr $maintenanceBtn.Name}}catch{}}
+ }})
+ $dlg.Add_FormClosing({param($sender,$e)if($ds.job){$e.Cancel=$true}})
+ $dt.Start();try{[void]$dlg.ShowDialog($form)}finally{$dt.Stop();$dt.Dispose();$dlg.Dispose()}
+})
+$updateTimer.Start()
 $footer.ForeColor=$mutedColor
 Refresh-Layout
 Refresh-Language
 $form.Add_Shown({if(!$NoAuto){for($k=0;$k -lt $capacity;$k++){Request-Slot $k}};$timer.Start()})
 $form.Add_FormClosed({
  $timer.Stop();$timer.Dispose()
+ $updateTimer.Stop();$updateTimer.Dispose();if($checkState.job -and !$checkState.job.p.HasExited){$checkState.job.p.Kill()}
  if($state.job -and !$state.job.HasExited){$state.job.Kill()}
  for($j=0;$j -lt $capacity;$j++){Stop-Slot $j}
 })

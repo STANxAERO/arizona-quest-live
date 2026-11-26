@@ -36,7 +36,7 @@ function Probe([string]$addr,[bool]$connect){
  if($w -lt $h -or $w%4 -ne 0 -or $h%2 -ne 0){return}
  $override=''
  if($size -match 'Override size:\s*(\d+x\d+)'){$override=$Matches[1]}
- $found[$serial]=[pscustomobject]@{serial=$serial;address=$addr;model=$model;w=$w;h=$h;override=$override}
+ $found[$serial]=[pscustomobject]@{serial=$serial;address=$addr;model=$model;w=$w;h=$h;override=$override;build=(A @('-s',$addr,'shell','getprop','ro.build.version.incremental'))}
 }
 function Complete {return ($found.Count -ge @($cfg | Where-Object {$_.serial}).Count)}
 $initial=@((A @('devices','-l')) -split '\r?\n' | ForEach-Object {if($_ -match '^(\S+)\s+device\s'){$Matches[1]}})

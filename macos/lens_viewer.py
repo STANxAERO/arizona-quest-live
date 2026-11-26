@@ -17,7 +17,7 @@ def main():
         try:
             play=subprocess.Popen(["/opt/homebrew/bin/ffplay","-hide_banner","-loglevel","warning","-autoexit","-framedrop","-sync","video","-probesize","65536","-analyzeduration","0","-f","matroska","-vf",vf,"-window_title",title,"-y","600","-i",fifo])
             children.append(play)
-            capture=subprocess.Popen(["/opt/homebrew/bin/scrcpy",*args,"--no-window","--no-playback","--record-format=mkv","--record="+fifo])
+            capture=subprocess.Popen([os.environ.get("QUEST_SCRCPY","/opt/homebrew/bin/scrcpy"),*args,"--no-window","--no-playback","--record-format=mkv","--record="+fifo])
             children.append(capture)
             while not stop and os.getppid()==parent and all(p.poll() is None for p in children):time.sleep(.2)
         finally:

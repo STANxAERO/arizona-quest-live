@@ -7,6 +7,8 @@ struct Slot: Codable {
     var address: String
     var eye: String
     var wide: Bool? = nil
+    var lastBuild: String? = nil
+    var firmwarePending: Bool? = nil
 }
 struct Headset: Codable {
     var serial: String
@@ -15,6 +17,7 @@ struct Headset: Codable {
     var w: Int
     var h: Int
     var override: String
+    var build: String?
 }
 struct Discovery: Codable {
     var found: [Headset]?
@@ -112,7 +115,58 @@ final class Controller: ObservableObject {
 
     let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/ARIZONA Quest Live Public")
     let adb = "/opt/homebrew/bin/adb"
-    let viewer = "/opt/homebrew/bin/scrcpy"
+    var viewer:String {
+        let url=root.appendingPathComponent("engines/state.json")
+        if let data=try? Data(contentsOf:url),let v=try? JSONSerialization.jsonObject(with:data) as? [String:Any],
+           let tag=v["active"] as? String, tag.range(of:"^v[0-9]+\\.[0-9]+(\\.[0-9]+)?$",options:.regularExpression) != nil {
+            let path=root.appendingPathComponent("engines/\(tag)/scrcpy").path
+            if FileManager.default.isExecutableFile(atPath:path){return path}
+        }
+        return "/opt/homebrew/bin/scrcpy"
+    }
+    @Published var maintenanceText = ""
+    @Published var updateAvailable = false
+    @Published var firmwareChanged = false
+    @Published var maintenanceBusy = false
+    @Published var maintenanceOpen = false
+    @Published var selectedSlot=0
+    var idleForMaintenance:Bool { !wanted.contains(true) && children.allSatisfy{$0 == nil} && !searching }
+    private var lastUpdateCheck=Date.distantPast
+    func maintenance(_ action:String) {
+        guard !maintenanceBusy else{return}
+        if ["capture","test","activate","rollback"].contains(action) && !idleForMaintenance {
+            maintenanceText=language=="RU" ? "Сначала остановите все потоки и дождитесь завершения." : "Stop all streams and wait for them to exit.";return
+        }
+        guard let script=Bundle.main.url(forResource:"maintenance",withExtension:"py") else{return}
+        maintenanceBusy=true
+        let targetSlot=selectedSlot
+        let p=Process(),pipe=Pipe()
+        p.executableURL=URL(fileURLWithPath:python);p.arguments=[script.path,action,String(selectedSlot)]
+        p.standardOutput=pipe;p.standardError=FileHandle.nullDevice
+        do{try p.run()}catch{maintenanceBusy=false;maintenanceText=error.localizedDescription;return}
+        DispatchQueue.global(qos:.utility).async { [weak self] in
+            let data=pipe.fileHandleForReading.readDataToEndOfFile();p.waitUntilExit()
+            DispatchQueue.main.async { [weak self] in
+                guard let self=self else{return};self.maintenanceBusy=false
+                guard let result=try? JSONSerialization.jsonObject(with:data) as? [String:Any] else{self.maintenanceText="Maintenance failed";return}
+                if action=="check" {
+                    self.lastUpdateCheck=Date()
+                    let version=Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.5.0"
+                    let latest=(result["latest"] as? String ?? "").replacingOccurrences(of:"v",with:"")
+                    let installed=(result["engine"] as? String ?? "").split(separator:" ").dropFirst().first.map(String.init) ?? ""
+                    let app=(result["app"] as? String ?? "").replacingOccurrences(of:"v",with:"")
+                    self.updateAvailable=(!latest.isEmpty && latest.compare(installed,options:.numeric) == .orderedDescending) || (!app.isEmpty && app.compare(version,options:.numeric) == .orderedDescending)
+                }
+                if action=="capture",result["passed"] as? Bool == true,
+                   result["build"] as? String == self.slots[targetSlot].lastBuild {
+                    self.slots[targetSlot].firmwarePending=false;self.save()
+                    self.firmwareChanged=self.slots.contains{$0.firmwarePending == true}
+                }
+                self.maintenanceText=result.sorted{$0.key<$1.key}.map{"\($0.key): \($0.value)"}.joined(separator:"\n")
+            }
+        }
+    }
+
     let python = "/opt/homebrew/bin/python3.13"
     @Published var slots: [Slot] = []
     @Published var status = Array(repeating: "Waiting", count: Controller.capacity)
@@ -149,6 +203,7 @@ final class Controller: ObservableObject {
         if slots.count > Self.capacity { alert="Settings exceed supported capacity."; slots=Array(slots.prefix(Self.capacity)) }
         while slots.count < Self.capacity { slots.append(Slot(serial:"",address:"",eye:"Left")) }
         wide = slots.map { $0.wide ?? false }
+        firmwareChanged = slots.contains{$0.firmwarePending == true}
         if alert.isEmpty { save() }
     }
     func save() {
@@ -162,10 +217,12 @@ final class Controller: ObservableObject {
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.8,repeats:true) { [weak self] _ in self?.tick() }
         startAll()
+        maintenance("check")
     }
     func startAll() { for i in slots.indices { start(i) } }
     func stopAll() { for i in slots.indices { stop(i) } }
     func start(_ i: Int) {
+        guard !maintenanceBusy || !maintenanceOpen else {return}
         guard !slots[i].serial.isEmpty else { status[i]="Connect via USB to register";return }
         wanted[i] = true
         if children[i] == nil { status[i] = "Finding headset…" }
@@ -182,6 +239,7 @@ final class Controller: ObservableObject {
     }
     func tick() {
         guard !closing else { return }
+        if Date().timeIntervalSince(lastUpdateCheck)>21600 && !maintenanceBusy {maintenance("check")}
         for i in 0..<Self.capacity {
             if let p = children[i], !p.isRunning {
                 children[i] = nil; running[i] = false
@@ -220,6 +278,10 @@ final class Controller: ObservableObject {
             for i in 0..<Self.capacity where self.wanted[i] && self.children[i] == nil {
                 if let d = result?.found?.first(where: { $0.serial == self.slots[i].serial }) {
                     self.known[i] = d
+                    if let build=d.build,!build.isEmpty {
+                        if let old=self.slots[i].lastBuild,old != build { self.slots[i].firmwarePending=true;self.firmwareChanged=true }
+                        self.slots[i].lastBuild=build
+                    }
                     self.slots[i].address = d.address; self.save(); self.open(i,d)
                 } else if let addr = result?.unauthorized, addr.contains(self.slots[i].address) {
                     self.status[i] = "Approve debugging in the headset"
@@ -252,6 +314,7 @@ final class Controller: ObservableObject {
             p.executableURL=URL(fileURLWithPath:viewer);p.arguments=captureArgs
         }
         var env = ProcessInfo.processInfo.environment; env["ADB"] = adb
+        env["QUEST_SCRCPY"] = viewer
         env["PATH"] = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; p.environment = env
         let log = root.appendingPathComponent("headset-\(i+1).log")
         _ = FileManager.default.createFile(atPath:log.path,contents:nil)
@@ -364,11 +427,41 @@ struct ContentView: View {
                 Spacer()
                 if c.searching { ProgressView().controlSize(.small);Text(c.tr("Searching…")).foregroundStyle(.secondary) }
                 Button(c.tr("Logs")){NSWorkspace.shared.open(c.root)}
+                Button(c.language=="RU" ? (c.updateAvailable ? "Обновление •":(c.firmwareChanged ? "Прошивка •":"Диагностика")) : (c.updateAvailable ? "Update •":(c.firmwareChanged ? "Firmware •":"Maintenance"))){c.maintenanceOpen=true}
             }
             Text(c.tr("If a reboot disables network ADB, use USB / Wi-Fi setup. For a black screen, open a VR app and restart the stream.")+" "+c.tr("Correction is approximate; switching modes restarts active streams.")).font(.caption).foregroundStyle(.secondary)
         }.padding(20).frame(width:720).fixedSize(horizontal:false,vertical:true)
             .preferredColorScheme(.dark)
             .onAppear{c.startOnce()}
+            .sheet(isPresented:$c.maintenanceOpen){
+                VStack(alignment:.leading,spacing:12){
+                    Text(c.language=="RU" ? "Диагностика и обновления":"Diagnostics & updates").font(.title2.bold())
+                    if c.firmwareChanged {
+                        Text((c.language=="RU" ? "Изменилась прошивка. Проверьте захват: " : "Firmware changed. Test capture: ")+c.slots.indices.filter{c.slots[$0].firmwarePending==true}.map{String($0+1)}.joined(separator:", ")).foregroundStyle(.orange)
+                    }
+                    Text(c.language=="RU" ? "Обновления не устанавливаются автоматически. Для теста и смены движка остановите все потоки. Включите Graffism в выбранном шлеме." : "Updates are never installed automatically. Stop all streams before a capture test or engine switch. Open Graffism in the selected headset.").font(.callout)
+                    Picker(c.tr("Headset"),selection:$c.selectedSlot){ForEach(0..<Controller.capacity,id:\.self){Text("\(c.tr("Headset")) \($0+1)").tag($0)}}
+                    HStack{
+                        Button(c.language=="RU" ? "Проверить обновления":"Check updates"){c.maintenance("check")}
+                        Button(c.language=="RU" ? "Проверить ADB":"Check ADB"){c.maintenance("diagnose")}
+                        Button(c.language=="RU" ? "Тест захвата":"Capture test"){c.maintenance("capture")}.disabled(!c.idleForMaintenance)
+                    }.disabled(c.maintenanceBusy)
+                    HStack{
+                        Button(c.language=="RU" ? "Загрузить движок":"Stage engine"){c.maintenance("stage")}
+                        Button(c.language=="RU" ? "Тест нового":"Test candidate"){c.maintenance("test")}.disabled(!c.idleForMaintenance)
+                        Button(c.language=="RU" ? "Применить":"Activate"){c.maintenance("activate")}.disabled(!c.idleForMaintenance)
+                        Button(c.language=="RU" ? "Откат":"Rollback"){c.maintenance("rollback")}.disabled(!c.idleForMaintenance)
+                    }.disabled(c.maintenanceBusy)
+                    ScrollView{Text(c.maintenanceText).font(.system(.caption,design:.monospaced)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading)}.frame(height:190)
+                    HStack{
+                        if c.maintenanceBusy {ProgressView().controlSize(.small)}
+                        Button(c.language=="RU" ? "Остановить все":"Stop all"){c.stopAll()}
+                        Spacer()
+                        Button(c.language=="RU" ? "Релизы приложения":"App releases"){NSWorkspace.shared.open(URL(string:"https://github.com/STANxAERO/arizona-quest-live/releases")!)}
+                        Button(c.language=="RU" ? "Закрыть":"Close"){c.maintenanceOpen=false}.disabled(c.maintenanceBusy)
+                    }
+                }.padding(20).frame(width:680).interactiveDismissDisabled(c.maintenanceBusy)
+            }
             .alert("Quest Live",isPresented:Binding(get:{!c.alert.isEmpty},set:{if !$0{c.alert=""}})){Button("OK"){c.alert=""}}message:{Text(c.tr(c.alert))}
     }
     private func segment<V:View>(_ name:String,selected:Bool,action:@escaping ()->Void,@ViewBuilder label:()->V)->some View {
