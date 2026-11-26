@@ -3,14 +3,21 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $root=$PSScriptRoot
+$capacity=4
 $mutex=New-Object Threading.Mutex($false,'Local\ArizonaQuestLivePublic')
 if(!$mutex.WaitOne(0)){return}
 $data=Join-Path $env:LOCALAPPDATA 'ARIZONA Quest Live Public'
 New-Item -ItemType Directory -Path $data -Force | Out-Null
 $settings=Join-Path $data 'settings.json'
-if(!(Test-Path -LiteralPath $settings)){ '[{"serial":"","address":"","eye":"Left"},{"serial":"","address":"","eye":"Left"}]' | Set-Content -LiteralPath $settings -Encoding UTF8 }
-if($Check){ Write-Output 'Settings initialized'; $mutex.ReleaseMutex();$mutex.Dispose();return }
-$cfg=ConvertFrom-Json -InputObject (Get-Content $settings -Raw -Encoding UTF8)
+if(!(Test-Path -LiteralPath $settings)){ @(1..$capacity | ForEach-Object { [pscustomobject]@{serial="";address="";eye="Left"} }) | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding UTF8 }
+$cfg=@(ConvertFrom-Json -InputObject (Get-Content $settings -Raw -Encoding UTF8) | ForEach-Object {$_})
+if($cfg.Count -gt $capacity){throw 'Settings exceed supported capacity'}
+if($cfg.Count -lt $capacity){
+ Copy-Item -LiteralPath $settings -Destination ($settings+'.v01-backup')
+ while($cfg.Count -lt $capacity){$cfg+= [pscustomobject]@{serial="";address="";eye="Left"}}
+ $cfg | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding UTF8
+}
+if($Check){ Write-Output ('Settings initialized: '+$cfg.Count); $mutex.ReleaseMutex();$mutex.Dispose();return }
 $viewer=Join-Path $root 'scrcpy\scrcpy.exe'
 $adb=Join-Path $root 'scrcpy\adb.exe'
 $p=Get-Process adb -ErrorAction SilentlyContinue|Select-Object -First 1
@@ -35,8 +42,8 @@ function Adb([string[]]$a,[int]$timeout=6000){
 }
 [Windows.Forms.Application]::EnableVisualStyles()
 $form=New-Object Windows.Forms.Form
-$form.Text='ARIZONA | QUEST LIVE 2'
-$form.StartPosition='CenterScreen';$form.ClientSize=New-Object Drawing.Size(720,405)
+$form.Text='ARIZONA | QUEST LIVE 4'
+$form.StartPosition='CenterScreen';$form.ClientSize=New-Object Drawing.Size(720,665)
 $form.FormBorderStyle='FixedSingle';$form.MaximizeBox=$false
 $form.BackColor=[Drawing.Color]::FromArgb(24,26,30);$form.ForeColor=[Drawing.Color]::White
 $form.Font=New-Object Drawing.Font('Segoe UI',10)
@@ -49,10 +56,10 @@ function Button($text,$x,$y,$w,$h){
 $h=Label 'QUEST LIVE / ARIZONA' 20 14 680 38
 $h.Font=New-Object Drawing.Font('Segoe UI',21,[Drawing.FontStyle]::Bold)
 $null=Label 'Auto discovery • Wi-Fi • one eye • auto reconnect' 22 56 680 25
-$all=Button '▶ Start both' 20 90 335 40
+$all=Button '▶ Start all' 20 90 335 40
 $all.BackColor=[Drawing.Color]::FromArgb(27,112,66)
-$stopAll=Button 'Stop both' 365 90 335 40
-$slots=@();$streams=@($null,$null);$want=@($false,$false);$missing=@(0,0)
+$stopAll=Button 'Stop all' 365 90 335 40
+$slots=@();$streams=@($null)*$capacity;$want=@($false)*$capacity;$missing=@(0)*$capacity
 $state=@{job=$null;out=$null;err=$null;next=[datetime]::MinValue;closing=$false}
 function Stop-Slot([int]$i){
  $want[$i]=$false;$p=$streams[$i]
@@ -79,18 +86,19 @@ function Open-Viewer([int]$i,$info){
  [void]$p.Start();$streams[$i]=$p;$missing[$i]=0
  $slots[$i].status.Text='Starting video...'
 }
-for($i=0;$i -lt 2;$i++){
- $x=20+345*$i
- $title=Label ("Headset "+($i+1)) $x 148 335 27
+for($i=0;$i -lt $capacity;$i++){
+ $x=20+345*($i%2)
+ $dy=250*[int][Math]::Floor($i/2)
+ $title=Label ("Headset "+($i+1)) $x (148+$dy) 335 27
  $title.Font=New-Object Drawing.Font('Segoe UI',14,[Drawing.FontStyle]::Bold)
- $addr=Label ([string]$cfg[$i].address) $x 181 335 25
+ $addr=Label ([string]$cfg[$i].address) $x (181+$dy) 335 25
  $addr.ForeColor=[Drawing.Color]::LightGray
- $eye=New-Object Windows.Forms.ComboBox;$eye.SetBounds($x,210,335,30);$eye.DropDownStyle='DropDownList'
+ $eye=New-Object Windows.Forms.ComboBox;$eye.SetBounds($x,(210+$dy),335,30);$eye.DropDownStyle='DropDownList'
  [void]$eye.Items.Add('Left eye');[void]$eye.Items.Add('Right eye');$eye.SelectedIndex=0
  if($cfg[$i].eye -eq 'Right'){$eye.SelectedIndex=1};$form.Controls.Add($eye)
- $go=Button 'Start' $x 250 210 36;$stop=Button 'Stop' ($x+220) 250 115 36
- $usb=Button 'Set up USB / Wi-Fi' $x 294 335 32
- $status=Label $(if($cfg[$i].serial){'Stopped'}else{'Connect via USB to register'}) $x 336 335 45
+ $go=Button 'Start' $x (250+$dy) 210 36;$stop=Button 'Stop' ($x+220) (250+$dy) 115 36
+ $usb=Button 'Set up USB / Wi-Fi' $x (294+$dy) 335 32
+ $status=Label $(if($cfg[$i].serial){'Stopped'}else{'Connect via USB to register'}) $x (336+$dy) 335 45
  $slots+=@{addr=$addr;eye=$eye;go=$go;stop=$stop;usb=$usb;status=$status}
  $go.Tag=$i;$stop.Tag=$i;$usb.Tag=$i
  $go.Add_Click({param($sender,$e) Request-Slot ([int]$sender.Tag)})
@@ -104,7 +112,7 @@ for($i=0;$i -lt 2;$i++){
    $ids=@($list -split '\r?\n'|ForEach-Object{if($_ -match '^([A-Za-z0-9]+)\s+device\s+.*model:Quest'){$Matches[1]}})
    if($ids.Count -ne 1){throw 'Connect one Quest via USB and approve USB debugging in the headset.'}
    $id=$ids[0];$serial=Adb @('-s',$id,'shell','getprop','ro.serialno')
-   if(!$serial -or $serial -eq $cfg[1-$j].serial){throw 'Headset уже назначен другой кнопке.'}
+   if(!$serial -or @($cfg | Where-Object {$_.serial -eq $serial}).Count -gt $(if($cfg[$j].serial -eq $serial){1}else{0})){throw 'Headset already registered to another slot.'}
    if($cfg[$j].serial -and $cfg[$j].serial -ne $serial){throw 'Different headset. Registration unchanged.'}
    $net=Adb @('-s',$id,'shell','ip','-4','addr','show','wlan0')
    if($net -notmatch 'inet\s+(\d+\.\d+\.\d+\.\d+)/'){throw 'Connect the headset to Wi-Fi.'}
@@ -118,8 +126,8 @@ for($i=0;$i -lt 2;$i++){
   }catch{$slots[$j].status.Text='USB: '+$_.Exception.Message}
  })
 }
-$all.Add_Click({Request-Slot 0;Request-Slot 1})
-$stopAll.Add_Click({Stop-Slot 0;Stop-Slot 1})
+$all.Add_Click({for($k=0;$k -lt $capacity;$k++){Request-Slot $k}})
+$stopAll.Add_Click({for($k=0;$k -lt $capacity;$k++){Stop-Slot $k}})
 function Begin-Discovery {
  $p=New-Object Diagnostics.Process
  $p.StartInfo.FileName=Join-Path $PSHOME 'powershell.exe'
@@ -132,7 +140,7 @@ function Begin-Discovery {
 $timer=New-Object Windows.Forms.Timer;$timer.Interval=700
 $timer.Add_Tick({
  try{
-  for($j=0;$j -lt 2;$j++){
+  for($j=0;$j -lt $capacity;$j++){
    $p=$streams[$j]
    if($p -and $p.HasExited){
     $p.Dispose();$streams[$j]=$null
@@ -149,7 +157,7 @@ $timer.Add_Tick({
     $state.next=[datetime]::Now.AddSeconds(7)
     $result=$null
     if($raw){$result=ConvertFrom-Json -InputObject $raw}
-    for($j=0;$j -lt 2;$j++){
+    for($j=0;$j -lt $capacity;$j++){
      if(!$want[$j] -or ($streams[$j] -and !$streams[$j].HasExited)){continue}
      $info=@($result.found|Where-Object{$_.serial -eq $cfg[$j].serial})|Select-Object -First 1
      if($info){Open-Viewer $j $info}
@@ -158,15 +166,15 @@ $timer.Add_Tick({
    }
   }elseif([datetime]::Now -ge $state.next){
    $need=$false
-   for($j=0;$j -lt 2;$j++){if($want[$j] -and !$streams[$j]){$need=$true}}
+   for($j=0;$j -lt $capacity;$j++){if($want[$j] -and !$streams[$j]){$need=$true}}
    if($need){Begin-Discovery}
   }
- }catch{$state.next=[datetime]::Now.AddSeconds(7);$form.Text='ARIZONA | QUEST LIVE 2 - retrying'}
+ }catch{$state.next=[datetime]::Now.AddSeconds(7);$form.Text='ARIZONA | QUEST LIVE 4 - retrying'}
 })
-$form.Add_Shown({if(!$NoAuto){Request-Slot 0;Request-Slot 1};$timer.Start()})
+$form.Add_Shown({if(!$NoAuto){for($k=0;$k -lt $capacity;$k++){Request-Slot $k}};$timer.Start()})
 $form.Add_FormClosed({
  $timer.Stop();$timer.Dispose()
  if($state.job -and !$state.job.HasExited){$state.job.Kill()}
- for($j=0;$j -lt 2;$j++){Stop-Slot $j}
+ for($j=0;$j -lt $capacity;$j++){Stop-Slot $j}
 })
 try{[void]$form.ShowDialog()}finally{$mutex.ReleaseMutex();$mutex.Dispose()}

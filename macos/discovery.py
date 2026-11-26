@@ -68,9 +68,9 @@ def discover(force=False):
                     if wanted<=found.keys():break
             if wanted<=found.keys():break
     print(json.dumps(dict(found=list(found.values()),unauthorized=auth,networks=nets)))
-def usb(serial,other):
+def usb(serial,others):
     ids=[a for a,s in devices().items() if ":" not in a and not a.startswith("emulator") and s=="device"]
-    candidates=[d for a in ids if (d:=info(a)) and (not serial or d["serial"]==serial) and d["serial"]!=other]
+    candidates=[d for a in ids if (d:=info(a)) and (not serial or d["serial"]==serial) and d["serial"] not in others]
     if len(candidates)!=1:raise RuntimeError("Connect the correct Quest via USB and approve debugging.")
     d=candidates[0];a=d["address"]
     net=run("-s",a,"shell","ip","-4","addr","show","wlan0")
@@ -83,7 +83,7 @@ def usb(serial,other):
     print(json.dumps(verified))
 if __name__=="__main__":
     try:
-        if sys.argv[1]=="usb":usb(sys.argv[2],sys.argv[3])
+        if sys.argv[1]=="usb":usb(sys.argv[2],sys.argv[3:])
         else:discover("--force" in sys.argv)
     except Exception as e:
         print(json.dumps({"error":str(e)}));sys.exit(1)

@@ -23,20 +23,21 @@ struct Discovery: Codable {
 }
 final class Controller: ObservableObject {
     static let shared = Controller()
+    static let capacity = 4
     let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/ARIZONA Quest Live Public")
     let adb = "/opt/homebrew/bin/adb"
     let viewer = "/opt/homebrew/bin/scrcpy"
     let python = "/opt/homebrew/bin/python3.13"
     @Published var slots: [Slot] = []
-    @Published var status = ["Waiting", "Waiting"]
-    @Published var running = [false,false]
-    @Published var wanted = [false,false]
+    @Published var status = Array(repeating: "Waiting", count: Controller.capacity)
+    @Published var running = Array(repeating:false,count:Controller.capacity)
+    @Published var wanted = Array(repeating:false,count:Controller.capacity)
     @Published var searching = false
-    @Published var wide = [false,false]
+    @Published var wide = Array(repeating:false,count:Controller.capacity)
     @Published var quality = "1600 / 30 FPS"
     @Published var alert = ""
-    private var children: [Process?] = [nil,nil]
-    private var known: [Headset?] = [nil,nil]
+    private var children: [Process?] = Array(repeating:nil,count:Controller.capacity)
+    private var known: [Headset?] = Array(repeating:nil,count:Controller.capacity)
     private var retryAfter = Date.distantPast
     private var timer: Timer?
     private var helper: Process?
@@ -48,13 +49,15 @@ final class Controller: ObservableObject {
             try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
             let url=root.appendingPathComponent("settings.json")
             if !FileManager.default.fileExists(atPath:url.path) {
-                let empty=[Slot(serial:"",address:"",eye:"Left"),Slot(serial:"",address:"",eye:"Left")]
+                let empty=Array(repeating:Slot(serial:"",address:"",eye:"Left"),count:Self.capacity)
                 try JSONEncoder().encode(empty).write(to:url,options:.atomic)
             }
             slots = try JSONDecoder().decode([Slot].self, from: Data(contentsOf:url))
         }
         catch { alert = "Could not read settings: \(error.localizedDescription)" }
-        if slots.count != 2 { slots = [Slot(serial:"",address:"",eye:"Left"),Slot(serial:"",address:"",eye:"Left")] }
+        if slots.count > Self.capacity { alert="Settings exceed supported capacity."; slots=Array(slots.prefix(Self.capacity)) }
+        while slots.count < Self.capacity { slots.append(Slot(serial:"",address:"",eye:"Left")) }
+        if alert.isEmpty { save() }
     }
     func save() {
         do { try JSONEncoder().encode(slots).write(to: root.appendingPathComponent("settings.json"),options:.atomic) }
@@ -68,8 +71,8 @@ final class Controller: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.8,repeats:true) { [weak self] _ in self?.tick() }
         startAll()
     }
-    func startAll() { start(0); start(1) }
-    func stopAll() { stop(0); stop(1) }
+    func startAll() { for i in slots.indices { start(i) } }
+    func stopAll() { for i in slots.indices { stop(i) } }
     func start(_ i: Int) {
         guard !slots[i].serial.isEmpty else { status[i]="Connect via USB to register";return }
         wanted[i] = true
@@ -87,13 +90,13 @@ final class Controller: ObservableObject {
     }
     func tick() {
         guard !closing else { return }
-        for i in 0..<2 {
+        for i in 0..<Self.capacity {
             if let p = children[i], !p.isRunning {
                 children[i] = nil; running[i] = false
                 if wanted[i] { status[i] = "Reconnecting…"; retryAfter = Date().addingTimeInterval(2) }
             }
         }
-        if !searching && Date() >= retryAfter && (0..<2).contains(where: { wanted[$0] && children[$0] == nil }) {
+        if !searching && Date() >= retryAfter && (0..<Self.capacity).contains(where: { wanted[$0] && children[$0] == nil }) {
             discover()
         }
     }
@@ -122,7 +125,7 @@ final class Controller: ObservableObject {
             guard let self = self else { return }
             self.retryAfter = Date().addingTimeInterval(6)
             let result = data.flatMap { try? JSONDecoder().decode(Discovery.self, from:$0) }
-            for i in 0..<2 where self.wanted[i] && self.children[i] == nil {
+            for i in 0..<Self.capacity where self.wanted[i] && self.children[i] == nil {
                 if let d = result?.found?.first(where: { $0.serial == self.slots[i].serial }) {
                     self.known[i] = d
                     self.slots[i].address = d.address; self.save(); self.open(i,d)
@@ -143,7 +146,7 @@ final class Controller: ObservableObject {
         w = w/2*2; x = x/2*2; y = y/2*2
         let maxSize = quality == "1080 / 30 FPS" ? "1080" : "1600"
         let fps = quality == "1600 / 60 FPS" ? "60" : "30"
-        let rate = fps == "60" ? "8M" : "5M"
+        let rate = fps == "60" ? "8M" : (maxSize == "1080" ? "3M" : "5M")
         let p = Process()
         p.executableURL = URL(fileURLWithPath:viewer)
         p.arguments = ["--serial=\(d.address)","--crop=\(w):\(h):\(x):\(y)","--no-audio","--no-control","--video-codec=h264","--max-size=\(maxSize)","--max-fps=\(fps)","--video-bit-rate=\(rate)","--window-height=600","--window-title=ARIZONA-Quest-\(i+1)"]
@@ -163,9 +166,9 @@ final class Controller: ObservableObject {
         a.addButton(withTitle:"Set up");a.addButton(withTitle:"Cancel")
         guard a.runModal() == .alertFirstButtonReturn else { return }
         wanted[i]=false; status[i]="USB setup…"
-        invoke(["usb",slots[i].serial,slots[1-i].serial]) { [weak self] data in
+        invoke(["usb",slots[i].serial] + slots.indices.filter{$0 != i}.map{slots[$0].serial}) { [weak self] data in
             guard let self=self else{return}
-            if let data=data, let d=try? JSONDecoder().decode(Headset.self,from:data), (self.slots[i].serial.isEmpty || d.serial==self.slots[i].serial), d.serial != self.slots[1-i].serial {
+            if let data=data, let d=try? JSONDecoder().decode(Headset.self,from:data), (self.slots[i].serial.isEmpty || d.serial==self.slots[i].serial), !self.slots.indices.contains(where:{$0 != i && self.slots[$0].serial == d.serial}) {
                 self.slots[i].serial=d.serial;self.slots[i].address=d.address;self.save();self.start(i)
             } else {
                 let r=data.flatMap {try? JSONDecoder().decode(Discovery.self,from:$0)}
@@ -189,17 +192,17 @@ struct ContentView: View {
             HStack {
                 VStack(alignment:.leading,spacing:5){
                     Text("ARIZONA  /  QUEST LIVE").font(.system(size:26,weight:.heavy,design:.rounded))
-                    Text("Two headsets. One local network.").foregroundStyle(.secondary)
+                    Text("Up to four headsets. One local network.").foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName:"wifi").font(.system(size:28)).foregroundStyle(.green)
             }
             HStack(spacing:12) {
-                Button{c.startAll()}label:{Label("Start both",systemImage:"play.fill").frame(maxWidth:.infinity)}
+                Button{c.startAll()}label:{Label("Start all",systemImage:"play.fill").frame(maxWidth:.infinity)}
                     .buttonStyle(.borderedProminent).tint(.green)
-                Button{c.stopAll()}label:{Label("Stop both",systemImage:"stop.fill").frame(maxWidth:.infinity)}.buttonStyle(.bordered)
+                Button{c.stopAll()}label:{Label("Stop all",systemImage:"stop.fill").frame(maxWidth:.infinity)}.buttonStyle(.bordered)
             }.controlSize(.large)
-            HStack(spacing:14){card(0);card(1)}
+            ScrollView { LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12){ ForEach(0..<Controller.capacity,id:\.self){card($0)} } }
             HStack {
                 Text("Quality").foregroundStyle(.secondary)
                 Picker("",selection:$c.quality){ForEach(["1080 / 30 FPS","1600 / 30 FPS","1600 / 60 FPS"],id:\.self){Text($0)}}.labelsHidden().frame(width:180)
@@ -208,19 +211,19 @@ struct ContentView: View {
                 Button("Logs"){NSWorkspace.shared.open(c.root)}
             }
             Text("If a reboot disables network ADB, use USB / Wi-Fi setup. For a black screen, open a VR app and restart the stream.").font(.caption).foregroundStyle(.secondary)
-        }.padding(24).frame(width:720,height:465)
+        }.padding(24).frame(width:720,height:710)
             .preferredColorScheme(.dark)
             .onAppear{c.startOnce()}
             .alert("Quest Live",isPresented:Binding(get:{!c.alert.isEmpty},set:{if !$0{c.alert=""}})){Button("OK"){c.alert=""}}message:{Text(c.alert)}
     }
     func card(_ i:Int)->some View {
-        VStack(alignment:.leading,spacing:12){
+        VStack(alignment:.leading,spacing:8){
             HStack {
                 Image(systemName:"visionpro").font(.title2).foregroundStyle(c.running[i] ? .green:.secondary)
                 Text("Headset \(i+1)").font(.title2.bold());Spacer()
                 Circle().fill(c.running[i] ? Color.green:Color.gray).frame(width:9,height:9)
             }
-            Text(c.status[i]).font(.callout).frame(height:34,alignment:.topLeading)
+            Text(c.status[i]).font(.callout).frame(height:24,alignment:.topLeading)
                 .foregroundStyle(c.running[i] ? Color.green:Color.secondary)
             Text(c.slots[i].address).font(.caption.monospaced()).foregroundStyle(.secondary)
             Picker("Eye",selection:Binding(get:{c.slots[i].eye},set:{c.slots[i].eye=$0;c.save()})){
@@ -236,7 +239,7 @@ struct ContentView: View {
                 Button("USB / Wi-Fi"){c.configureUSB(i)}
                 Button("Graffism"){c.graffiti(i)}
             }
-        }.padding(16).frame(maxWidth:.infinity,alignment:.leading)
+        }.padding(12).frame(maxWidth:.infinity,alignment:.leading)
         .background(Color.white.opacity(0.055),in:RoundedRectangle(cornerRadius:16))
     }
 }
