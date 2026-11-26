@@ -7,3 +7,5 @@
 - Meta Quest and Graffism are third-party products. No affiliation, endorsement, redistribution of proprietary Meta casting components, or warranty is implied.
 
 The MIT license in this repository covers only the original launcher source and documentation. Upstream components remain subject to their respective licenses and terms.
+
+- FFmpeg / FFplay — separate dependency for optional lens correction; see [FFmpeg legal information](https://ffmpeg.org/legal.html). License of a build depends on its configuration. Installed independently; no FFmpeg binaries redistributed in this repository or release.

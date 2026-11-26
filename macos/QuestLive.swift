@@ -24,6 +24,90 @@ struct Discovery: Codable {
 final class Controller: ObservableObject {
     static let shared = Controller()
     static let capacity = 4
+    static let ru: [String:String] = [
+        "Up to four headsets. One local network.":"До четырёх шлемов. Одна локальная сеть.",
+        "Auto discovery • Wi-Fi • one eye • auto reconnect":"Автопоиск • Wi-Fi • один глаз • переподключение",
+        "Start all":"Запустить все",
+        "Stop all":"Остановить все",
+        "Start":"Запустить",
+        "Stop":"Стоп",
+        "Headset":"Шлем",
+        "Left":"Левый",
+        "Right":"Правый",
+        "Left eye":"Левый глаз",
+        "Right eye":"Правый глаз",
+        "Eye":"Глаз",
+        "Quality":"Качество",
+        "Searching…":"Поиск…",
+        "Logs":"Журналы",
+        "Wide crop 16:9":"Кадр 16:9",
+        "Restart with current settings":"Перезапуск с текущими настройками",
+        "Set up USB / Wi-Fi":"Настроить USB / Wi-Fi",
+        "Fisheye":"Рыбий глаз",
+        "Correction":"Коррекция",
+        "Waiting":"Ожидание",
+        "Stopped":"Остановлен",
+        "Connect via USB to register":"Подключите USB для регистрации",
+        "Finding headset…":"Поиск шлема…",
+        "Finding headset...":"Поиск шлема…",
+        "Reconnecting…":"Переподключение…",
+        "Connection lost. Reconnecting...":"Связь потеряна. Переподключение…",
+        "Approve debugging in the headset":"Подтвердите отладку в шлеме",
+        "Retrying • use USB if needed":"Повтор поиска • при необходимости USB",
+        "Not found. Retrying...":"Не найден. Повтор поиска…",
+        "Waiting for network ADB. Use USB if needed.":"Ожидание ADB. При необходимости USB.",
+        "Stream process started":"Процесс трансляции запущен",
+        "Stream window open":"Окно трансляции открыто",
+        "Starting video...":"Запуск изображения…",
+        "Correction process started":"Процесс коррекции запущен",
+        "Non-default display size: ":"Нестандартное разрешение: ",
+        "Launch error: ":"Ошибка запуска: ",
+        "Could not read settings: ":"Не удалось прочитать настройки: ",
+        "Could not save settings: ":"Не удалось сохранить настройки: ",
+        "Settings exceed supported capacity.":"Превышено количество поддерживаемых шлемов.",
+        "Install ADB, scrcpy and Python 3.13 first (see README).":"Сначала установите ADB, scrcpy и Python 3.13 (см. README).",
+        "Discovery in progress. Try again shortly.":"Идёт поиск. Повторите немного позже.",
+        "Stop this headset before setup.":"Сначала остановите этот шлем.",
+        "Stop this headset first.":"Сначала остановите этот шлем.",
+        "Set up network ADB?":"Настроить сетевой ADB?",
+        "Connect the correct Quest via USB and approve debugging. Use only a trusted private LAN.":"Подключите нужный Quest по USB и разрешите отладку. Только доверенная локальная сеть.",
+        "Set up":"Настроить",
+        "Cancel":"Отмена",
+        "USB setup…":"Настройка USB…",
+        "Not registered":"Не зарегистрирован",
+        "Check USB debugging and Wi-Fi.":"Проверьте USB-отладку и Wi-Fi.",
+        "Connect the headset first.":"Сначала подключите шлем.",
+        "Connect the correct Quest via USB and approve debugging.":"Подключите нужный Quest по USB и разрешите отладку.",
+        "Quest is not connected to Wi-Fi.":"Quest не подключён к Wi-Fi.",
+        "Network ADB is not authorized. Check the headset prompt.":"ADB по сети не авторизован. Проверьте запрос в шлеме.",
+        "Connect one Quest via USB and approve USB debugging in the headset.":"Подключите один Quest через USB и разрешите отладку.",
+        "Headset already registered to another slot.":"Шлем уже назначен другому слоту.",
+        "Different headset. Registration unchanged.":"Это другой шлем. Регистрация не изменена.",
+        "Connect the headset to Wi-Fi.":"Подключите шлем к Wi-Fi.",
+        "Enable network ADB? Use only a trusted private LAN.":"Включить сетевой ADB? Только доверенная локальная сеть.",
+        "ADB timeout":"Тайм-аут ADB",
+        "Correction needs ffplay. Install FFmpeg (see README).":"Для коррекции нужен ffplay. Установите FFmpeg (см. README).",
+        "If a reboot disables network ADB, use USB / Wi-Fi setup. For a black screen, open a VR app and restart the stream.":"После перезагрузки при необходимости настройте USB / Wi-Fi. При чёрном экране запустите VR-приложение и перезапустите поток.",
+        "Correction is approximate; switching modes restarts active streams.":"Коррекция приблизительная; смена режима перезапускает активные потоки."
+    ]
+    @Published var language = UserDefaults.standard.string(forKey:"language") ?? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "RU" : "EN") {
+        didSet { UserDefaults.standard.set(language,forKey:"language") }
+    }
+    @Published var corrected = UserDefaults.standard.bool(forKey:"corrected") {
+        didSet {
+            UserDefaults.standard.set(corrected,forKey:"corrected")
+            if oldValue != corrected {
+                for i in slots.indices where wanted[i] { restart(i) }
+            }
+        }
+    }
+    func tr(_ key:String)->String {
+        guard language=="RU" else { return key }
+        if let s=Self.ru[key] { return s }
+        for (k,v) in Self.ru where k.hasSuffix(": ") && key.hasPrefix(k) { return v+key.dropFirst(k.count) }
+        return key
+    }
+
     let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/ARIZONA Quest Live Public")
     let adb = "/opt/homebrew/bin/adb"
     let viewer = "/opt/homebrew/bin/scrcpy"
@@ -142,28 +226,37 @@ final class Controller: ObservableObject {
         guard d.override.isEmpty else { status[i] = "Non-default display size: \(d.override)"; return }
         let half = d.w/2
         var w = half, h = d.h, x = slots[i].eye == "Right" ? half : 0, y = 0
-        if wide[i] { h = min(d.h, (half*9/16)/2*2); y = (d.h-h)/2 }
+        if wide[i] && !corrected { h = min(d.h, (half*9/16)/2*2); y = (d.h-h)/2 }
         w = w/2*2; x = x/2*2; y = y/2*2
         let maxSize = quality == "1080 / 30 FPS" ? "1080" : "1600"
         let fps = quality == "1600 / 60 FPS" ? "60" : "30"
         let rate = fps == "60" ? "8M" : (maxSize == "1080" ? "3M" : "5M")
         let p = Process()
-        p.executableURL = URL(fileURLWithPath:viewer)
-        p.arguments = ["--serial=\(d.address)","--crop=\(w):\(h):\(x):\(y)","--no-audio","--no-control","--video-codec=h264","--max-size=\(maxSize)","--max-fps=\(fps)","--video-bit-rate=\(rate)","--window-height=600","--window-title=ARIZONA-Quest-\(i+1)"]
+        let captureArgs = ["--serial=\(d.address)","--crop=\(w):\(h):\(x):\(y)","--no-audio","--no-control","--video-codec=h264","--max-size=\(maxSize)","--max-fps=\(fps)","--video-bit-rate=\(rate)","--window-height=600","--window-title=ARIZONA-Quest-\(i+1)"]
+        if corrected {
+            guard FileManager.default.isExecutableFile(atPath:"/opt/homebrew/bin/ffplay"),
+                  let script=Bundle.main.url(forResource:"lens_viewer",withExtension:"py") else {
+                status[i]="Correction needs ffplay. Install FFmpeg (see README).";wanted[i]=false;return
+            }
+            p.executableURL=URL(fileURLWithPath:python)
+            p.arguments=[script.path,String(ProcessInfo.processInfo.processIdentifier),"ARIZONA-Quest-\(i+1)",wide[i] ? "wide":"normal"] + captureArgs
+        } else {
+            p.executableURL=URL(fileURLWithPath:viewer);p.arguments=captureArgs
+        }
         var env = ProcessInfo.processInfo.environment; env["ADB"] = adb
         env["PATH"] = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"; p.environment = env
         let log = root.appendingPathComponent("headset-\(i+1).log")
         _ = FileManager.default.createFile(atPath:log.path,contents:nil)
         if let f = try? FileHandle(forWritingTo:log) { p.standardOutput=f; p.standardError=f }
-        do { try p.run(); children[i]=p; running[i]=true; status[i]="Stream process started" }
+        do { try p.run(); children[i]=p; running[i]=true; status[i]=corrected ? "Correction process started":"Stream process started" }
         catch { status[i]="Launch error: \(error.localizedDescription)" }
     }
     func configureUSB(_ i: Int) {
         if searching { alert="Discovery in progress. Try again shortly."; return }
         if children[i] != nil { alert="Stop this headset before setup."; return }
-        let a=NSAlert(); a.messageText="Set up network ADB?"
-        a.informativeText="Connect the correct Quest via USB and approve debugging. Use only a trusted private LAN."
-        a.addButton(withTitle:"Set up");a.addButton(withTitle:"Cancel")
+        let a=NSAlert(); a.messageText=tr("Set up network ADB?")
+        a.informativeText=tr("Connect the correct Quest via USB and approve debugging. Use only a trusted private LAN.")
+        a.addButton(withTitle:tr("Set up"));a.addButton(withTitle:tr("Cancel"))
         guard a.runModal() == .alertFirstButtonReturn else { return }
         wanted[i]=false; status[i]="USB setup…"
         invoke(["usb",slots[i].serial] + slots.indices.filter{$0 != i}.map{slots[$0].serial}) { [weak self] data in
@@ -192,48 +285,51 @@ struct ContentView: View {
             HStack {
                 VStack(alignment:.leading,spacing:5){
                     Text("ARIZONA  /  QUEST LIVE").font(.system(size:26,weight:.heavy,design:.rounded))
-                    Text("Up to four headsets. One local network.").foregroundStyle(.secondary)
+                    Text(c.tr("Up to four headsets. One local network.")).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Image(systemName:"wifi").font(.system(size:28)).foregroundStyle(.green)
+                VStack(alignment:.trailing,spacing:5) {
+                    Picker("",selection:$c.language){Text("RU").tag("RU");Text("EN").tag("EN")}.pickerStyle(.segmented).labelsHidden().frame(width:92)
+                    Picker("",selection:$c.corrected){Text(c.tr("Fisheye")).tag(false);Text(c.tr("Correction")).tag(true)}.pickerStyle(.segmented).labelsHidden().frame(width:220)
+                }
             }
             HStack(spacing:12) {
-                Button{c.startAll()}label:{Label("Start all",systemImage:"play.fill").frame(maxWidth:.infinity)}
+                Button{c.startAll()}label:{Label(c.tr("Start all"),systemImage:"play.fill").frame(maxWidth:.infinity)}
                     .buttonStyle(.borderedProminent).tint(.green)
-                Button{c.stopAll()}label:{Label("Stop all",systemImage:"stop.fill").frame(maxWidth:.infinity)}.buttonStyle(.bordered)
+                Button{c.stopAll()}label:{Label(c.tr("Stop all"),systemImage:"stop.fill").frame(maxWidth:.infinity)}.buttonStyle(.bordered)
             }.controlSize(.large)
             ScrollView { LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12){ ForEach(0..<Controller.capacity,id:\.self){card($0)} } }
             HStack {
-                Text("Quality").foregroundStyle(.secondary)
+                Text(c.tr("Quality")).foregroundStyle(.secondary)
                 Picker("",selection:$c.quality){ForEach(["1080 / 30 FPS","1600 / 30 FPS","1600 / 60 FPS"],id:\.self){Text($0)}}.labelsHidden().frame(width:180)
                 Spacer()
-                if c.searching { ProgressView().controlSize(.small);Text("Searching…").foregroundStyle(.secondary) }
-                Button("Logs"){NSWorkspace.shared.open(c.root)}
+                if c.searching { ProgressView().controlSize(.small);Text(c.tr("Searching…")).foregroundStyle(.secondary) }
+                Button(c.tr("Logs")){NSWorkspace.shared.open(c.root)}
             }
-            Text("If a reboot disables network ADB, use USB / Wi-Fi setup. For a black screen, open a VR app and restart the stream.").font(.caption).foregroundStyle(.secondary)
+            Text(c.tr("If a reboot disables network ADB, use USB / Wi-Fi setup. For a black screen, open a VR app and restart the stream.")+" "+c.tr("Correction is approximate; switching modes restarts active streams.")).font(.caption).foregroundStyle(.secondary)
         }.padding(24).frame(width:720,height:710)
             .preferredColorScheme(.dark)
             .onAppear{c.startOnce()}
-            .alert("Quest Live",isPresented:Binding(get:{!c.alert.isEmpty},set:{if !$0{c.alert=""}})){Button("OK"){c.alert=""}}message:{Text(c.alert)}
+            .alert("Quest Live",isPresented:Binding(get:{!c.alert.isEmpty},set:{if !$0{c.alert=""}})){Button("OK"){c.alert=""}}message:{Text(c.tr(c.alert))}
     }
     func card(_ i:Int)->some View {
         VStack(alignment:.leading,spacing:8){
             HStack {
                 Image(systemName:"visionpro").font(.title2).foregroundStyle(c.running[i] ? .green:.secondary)
-                Text("Headset \(i+1)").font(.title2.bold());Spacer()
+                Text("\(c.tr("Headset")) \(i+1)").font(.title2.bold());Spacer()
                 Circle().fill(c.running[i] ? Color.green:Color.gray).frame(width:9,height:9)
             }
-            Text(c.status[i]).font(.callout).frame(height:24,alignment:.topLeading)
+            Text(c.tr(c.status[i])).font(.callout).frame(height:24,alignment:.topLeading)
                 .foregroundStyle(c.running[i] ? Color.green:Color.secondary)
             Text(c.slots[i].address).font(.caption.monospaced()).foregroundStyle(.secondary)
-            Picker("Eye",selection:Binding(get:{c.slots[i].eye},set:{c.slots[i].eye=$0;c.save()})){
-                Text("Left").tag("Left");Text("Right").tag("Right")
+            Picker(c.tr("Eye"),selection:Binding(get:{c.slots[i].eye},set:{c.slots[i].eye=$0;c.save()})){
+                Text(c.tr("Left")).tag("Left");Text(c.tr("Right")).tag("Right")
             }.pickerStyle(.segmented)
-            Toggle("Wide crop 16:9",isOn:$c.wide[i]).toggleStyle(.switch).controlSize(.small)
+            Toggle(c.tr("Wide crop 16:9"),isOn:$c.wide[i]).toggleStyle(.switch).controlSize(.small)
             HStack{
-                Button("Start"){c.start(i)}.buttonStyle(.borderedProminent).tint(.green)
-                Button("Stop"){c.stop(i)}
-                Button{c.restart(i)}label:{Image(systemName:"arrow.clockwise")}.help("Restart with current settings")
+                Button(c.tr("Start")){c.start(i)}.buttonStyle(.borderedProminent).tint(.green)
+                Button(c.tr("Stop")){c.stop(i)}
+                Button{c.restart(i)}label:{Image(systemName:"arrow.clockwise")}.help(c.tr("Restart with current settings"))
             }
             HStack{
                 Button("USB / Wi-Fi"){c.configureUSB(i)}

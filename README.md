@@ -50,3 +50,11 @@ MIT license applies only to our launcher code. scrcpy is a separate Apache-2.0 p
 ## Four-headset capacity / Четыре шлема
 
 Four independent viewer slots; the default target bitrate is 5 Mbit/s per stream (20 Mbit/s total for four, excluding overhead). Four physical devices have not yet been tested together. Two-device physical validation is not a four-device capacity guarantee.
+
+## Language and viewing mode (v0.3.0)
+
+Use the **RU / EN** switch at the top right to change the application interface immediately. The language and viewing mode are remembered. **Fisheye** is the original single-eye view via scrcpy; **Correction** applies a radial FFmpeg lens correction and a central crop. Switching modes restarts only requested streams. Correction is an approximate profile checked against Quest 3S footage, not a calibrated optical model; it reduces the field of view and may add decoding/filtering load and latency. It does not modify the headset. No video files are retained: the corrected stream uses a private local FIFO (macOS) or named pipe (Windows).
+
+Correction needs FFplay from FFmpeg. On Apple Silicon use `brew install ffmpeg` if ffplay is missing. On Windows install a build with ffplay from [FFmpeg's download page](https://ffmpeg.org/download.html) and ensure ffplay.exe is in PATH (restart the launcher after installation). The original mode does not require FFmpeg. LensViewer.exe must be beside the Windows launcher. To build the helper, compile windows/LensViewer.cs with the .NET Framework C# compiler using /target:winexe /platform:x64.
+
+Preview: two live corrected windows were launched on both systems; the Mac corrected image was visually verified. Windows RU/EN switching and transitions were exercised, but intermittent initial window availability was observed. Latency, sustained four-device correction, and other headset optical profiles remain unmeasured.
