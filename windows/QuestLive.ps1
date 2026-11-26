@@ -46,6 +46,7 @@ $ru=@{
  'Wide crop 16:9'='Кадр 16:9'
  'Restart with current settings'='Перезапуск с текущими настройками'
  'Set up USB / Wi-Fi'='Настроить USB / Wi-Fi'
+ 'Mode'='Режим'
  'Fisheye'='Рыбий глаз'
  'Correction'='Коррекция'
  'Waiting'='Ожидание'
@@ -134,12 +135,44 @@ function Button($text,$x,$y,$w,$h){
 }
 $h=Label 'QUEST LIVE / ARIZONA' 20 14 330 38
 $h.Font=New-Object Drawing.Font('Segoe UI',18,[Drawing.FontStyle]::Bold)
-$null=Label 'Auto discovery • Wi-Fi • one eye • auto reconnect' 22 56 680 25
+$null=Label 'Auto discovery • Wi-Fi • one eye • auto reconnect' 22 56 470 25
 $all=Button 'Start all' 20 90 335 40
 $all.BackColor=[Drawing.Color]::FromArgb(27,112,66)
 $stopAll=Button 'Stop all' 365 90 335 40
-$ruBtn=Button 'RU' 367 16 45 30;$enBtn=Button 'EN' 416 16 45 30
-$fishBtn=Button 'Fisheye' 470 16 108 30;$corrBtn=Button 'Correction' 582 16 118 30
+$ruBtn=Button 'RU' 606 12 45 30;$enBtn=Button 'EN' 655 12 45 30
+$modeLabel=Label 'Mode' 505 47 93 30
+$modeLabel.TextAlign=[Drawing.ContentAlignment]::MiddleRight
+$modeLabel.ForeColor=[Drawing.Color]::LightGray
+$fishBtn=Button '' 606 47 45 30;$corrBtn=Button '' 655 47 45 30
+$fishBtn.Name='FisheyeIcon';$corrBtn.Name='CorrectionIcon'
+$fishBtn.Tag=$false;$corrBtn.Tag=$true
+$modeTips=New-Object Windows.Forms.ToolTip
+foreach($btn in @($fishBtn,$corrBtn)){
+ $btn.Add_Paint({
+  param($sender,$e)
+  $g=$e.Graphics;$saved=$g.Save()
+  $outline=New-Object Drawing.Drawing2D.GraphicsPath
+  $pen=New-Object Drawing.Pen([Drawing.Color]::White,1.15)
+  $grid=New-Object Drawing.Pen([Drawing.Color]::White,0.85)
+  try {
+   $g.SmoothingMode=[Drawing.Drawing2D.SmoothingMode]::AntiAlias
+   $x=[single](($sender.ClientSize.Width-18)/2);$y=[single](($sender.ClientSize.Height-18)/2)
+   $g.TranslateTransform($x,$y)
+   if($sender.Tag){$outline.AddRectangle([Drawing.RectangleF]::new(1,1,16,16))}
+   else{$outline.AddEllipse([single]1,[single]1,[single]16,[single]16)}
+   $g.SetClip($outline)
+   foreach($v in @(5,9,13)){
+    if($sender.Tag){$g.DrawLine($grid,[single]$v,[single]0,[single]$v,[single]18);$g.DrawLine($grid,[single]0,[single]$v,[single]18,[single]$v)}
+    else{
+     $b=[single](9+($v-9)*1.65)
+     $g.DrawBezier($grid,[single]$v,[single]0,$b,[single]6,$b,[single]12,[single]$v,[single]18)
+     $g.DrawBezier($grid,[single]0,[single]$v,[single]6,$b,[single]12,$b,[single]18,[single]$v)
+    }
+   }
+   $g.ResetClip();$g.DrawPath($pen,$outline)
+  }finally{$g.Restore($saved);$outline.Dispose();$pen.Dispose();$grid.Dispose()}
+ })
+}
 $slots=@();$streams=@($null)*$capacity;$want=@($false)*$capacity;$missing=@(0)*$capacity
 $state=@{job=$null;out=$null;err=$null;next=[datetime]::MinValue;closing=$false}
 function Stop-Slot([int]$i){
@@ -226,6 +259,9 @@ function Refresh-Language {
  $enBtn.BackColor=$(if($uiState.language -eq 'EN'){$active}else{$idle})
  $fishBtn.BackColor=$(if(!$uiState.corrected){$active}else{$idle})
  $corrBtn.BackColor=$(if($uiState.corrected){$active}else{$idle})
+ $fishBtn.AccessibleName=(Tr 'Fisheye');$corrBtn.AccessibleName=(Tr 'Correction')
+ $modeTips.SetToolTip($fishBtn,(Tr 'Fisheye'));$modeTips.SetToolTip($corrBtn,(Tr 'Correction'))
+ $fishBtn.Invalidate();$corrBtn.Invalidate()
 }
 function Set-Lens([bool]$corrected){
  if($corrected -eq $uiState.corrected){return}

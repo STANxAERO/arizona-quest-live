@@ -43,6 +43,7 @@ final class Controller: ObservableObject {
         "Wide crop 16:9":"Кадр 16:9",
         "Restart with current settings":"Перезапуск с текущими настройками",
         "Set up USB / Wi-Fi":"Настроить USB / Wi-Fi",
+        "Mode":"Режим",
         "Fisheye":"Рыбий глаз",
         "Correction":"Коррекция",
         "Waiting":"Ожидание",
@@ -278,6 +279,36 @@ final class Controller: ObservableObject {
     }
     func restart(_ i: Int) { guard !slots[i].serial.isEmpty else { status[i]="Connect via USB to register";return }; if let p=children[i],p.isRunning{p.terminate()};wanted[i]=true;retryAfter = .distantPast }
 }
+// Template artwork: circular bowed grid for the original view, straight grid for correction.
+private enum ModeArtwork {
+    static let fisheye = make(false)
+    static let correction = make(true)
+    private static func make(_ corrected: Bool) -> NSImage {
+        let image = NSImage(size:NSSize(width:20,height:20),flipped:false) { _ in
+            let outline = corrected
+                ? NSBezierPath(roundedRect:NSRect(x:2,y:2,width:16,height:16),xRadius:1.4,yRadius:1.4)
+                : NSBezierPath(ovalIn:NSRect(x:2,y:2,width:16,height:16))
+            NSGraphicsContext.saveGraphicsState()
+            outline.addClip()
+            NSColor.black.setStroke()
+            let grid = NSBezierPath();grid.lineWidth=0.85
+            for v in [CGFloat(6),10,14] {
+                grid.move(to:NSPoint(x:v,y:1))
+                if corrected { grid.line(to:NSPoint(x:v,y:19)) }
+                else { grid.curve(to:NSPoint(x:v,y:19),controlPoint1:NSPoint(x:10+(v-10)*1.65,y:7),controlPoint2:NSPoint(x:10+(v-10)*1.65,y:13)) }
+                grid.move(to:NSPoint(x:1,y:v))
+                if corrected { grid.line(to:NSPoint(x:19,y:v)) }
+                else { grid.curve(to:NSPoint(x:19,y:v),controlPoint1:NSPoint(x:7,y:10+(v-10)*1.65),controlPoint2:NSPoint(x:13,y:10+(v-10)*1.65)) }
+            }
+            grid.stroke()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.black.setStroke();outline.lineWidth=1.25;outline.stroke()
+            return true
+        }
+        image.isTemplate=true
+        return image
+    }
+}
 struct ContentView: View {
     @ObservedObject var c=Controller.shared
     var body: some View {
@@ -289,8 +320,17 @@ struct ContentView: View {
                 }
                 Spacer()
                 VStack(alignment:.trailing,spacing:5) {
-                    Picker("",selection:$c.language){Text("RU").tag("RU");Text("EN").tag("EN")}.pickerStyle(.segmented).labelsHidden().frame(width:92)
-                    Picker("",selection:$c.corrected){Text(c.tr("Fisheye")).tag(false);Text(c.tr("Correction")).tag(true)}.pickerStyle(.segmented).labelsHidden().frame(width:220)
+                    HStack(spacing:2) {
+                        segment("RU",selected:c.language=="RU"){c.language="RU"} label:{Text("RU").font(.system(size:12,weight:.medium))}
+                        segment("EN",selected:c.language=="EN"){c.language="EN"} label:{Text("EN").font(.system(size:12,weight:.medium))}
+                    }.padding(1).background(Color.white.opacity(0.08),in:RoundedRectangle(cornerRadius:6))
+                    HStack(spacing:8) {
+                        Text(c.tr("Mode")).font(.callout).foregroundStyle(.secondary)
+                        HStack(spacing:2) {
+                            segment(c.tr("Fisheye"),selected:!c.corrected){c.corrected=false} label:{Image(nsImage:ModeArtwork.fisheye)}
+                            segment(c.tr("Correction"),selected:c.corrected){c.corrected=true} label:{Image(nsImage:ModeArtwork.correction)}
+                        }.padding(1).background(Color.white.opacity(0.08),in:RoundedRectangle(cornerRadius:6))
+                    }
                 }
             }
             HStack(spacing:12) {
@@ -311,6 +351,16 @@ struct ContentView: View {
             .preferredColorScheme(.dark)
             .onAppear{c.startOnce()}
             .alert("Quest Live",isPresented:Binding(get:{!c.alert.isEmpty},set:{if !$0{c.alert=""}})){Button("OK"){c.alert=""}}message:{Text(c.tr(c.alert))}
+    }
+    private func segment<V:View>(_ name:String,selected:Bool,action:@escaping ()->Void,@ViewBuilder label:()->V)->some View {
+        Button(action:action) {
+            label().frame(width:44,height:25)
+                .foregroundStyle(selected ? Color.white:Color.primary)
+                .background(selected ? Color.accentColor:Color.clear,in:RoundedRectangle(cornerRadius:5))
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(Text(name))
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .help(name)
     }
     func card(_ i:Int)->some View {
         VStack(alignment:.leading,spacing:8){
