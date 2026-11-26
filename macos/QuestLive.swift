@@ -81,7 +81,6 @@ final class Controller: ObservableObject {
         "USB setup…":"Настройка USB…",
         "Not registered":"Не зарегистрирован",
         "Check USB debugging and Wi-Fi.":"Проверьте USB-отладку и Wi-Fi.",
-        "Connect the headset first.":"Сначала подключите шлем.",
         "Connect the correct Quest via USB and approve debugging.":"Подключите нужный Quest по USB и разрешите отладку.",
         "Quest is not connected to Wi-Fi.":"Quest не подключён к Wi-Fi.",
         "Network ADB is not authorized. Check the headset prompt.":"ADB по сети не авторизован. Проверьте запрос в шлеме.",
@@ -151,7 +150,7 @@ final class Controller: ObservableObject {
                 guard let result=try? JSONSerialization.jsonObject(with:data) as? [String:Any] else{self.maintenanceText="Maintenance failed";return}
                 if action=="check" {
                     self.lastUpdateCheck=Date()
-                    let version=Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.5.0"
+                    let version=Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.5.1"
                     let latest=(result["latest"] as? String ?? "").replacingOccurrences(of:"v",with:"")
                     let installed=(result["engine"] as? String ?? "").split(separator:" ").dropFirst().first.map(String.init) ?? ""
                     let app=(result["app"] as? String ?? "").replacingOccurrences(of:"v",with:"")
@@ -340,13 +339,6 @@ final class Controller: ObservableObject {
             }
         }
     }
-    func graffiti(_ i: Int) {
-        guard let d=known[i] else { alert="Connect the headset first.";return }
-        let p=Process();p.executableURL=URL(fileURLWithPath:adb)
-        p.arguments=["-s",d.address,"shell","am","start","-n","com.vrite.Graffism/com.unity3d.player.UnityPlayerActivity"]
-        p.standardOutput=FileHandle.nullDevice;p.standardError=FileHandle.nullDevice
-        do{try p.run()}catch{alert=error.localizedDescription}
-    }
     func setEye(_ i:Int,_ value:String) {
         guard slots[i].eye != value else { return }
         slots[i].eye=value;save()
@@ -439,7 +431,7 @@ struct ContentView: View {
                     if c.firmwareChanged {
                         Text((c.language=="RU" ? "Изменилась прошивка. Проверьте захват: " : "Firmware changed. Test capture: ")+c.slots.indices.filter{c.slots[$0].firmwarePending==true}.map{String($0+1)}.joined(separator:", ")).foregroundStyle(.orange)
                     }
-                    Text(c.language=="RU" ? "Обновления не устанавливаются автоматически. Для теста и смены движка остановите все потоки. Включите Graffism в выбранном шлеме." : "Updates are never installed automatically. Stop all streams before a capture test or engine switch. Open Graffism in the selected headset.").font(.callout)
+                    Text(c.language=="RU" ? "Обновления не устанавливаются автоматически. Для теста и смены движка остановите все потоки. Откройте любое VR-приложение в выбранном шлеме." : "Updates are never installed automatically. Stop all streams before a capture test or engine switch. Open any VR application in the selected headset.").font(.callout)
                     Picker(c.tr("Headset"),selection:$c.selectedSlot){ForEach(0..<Controller.capacity,id:\.self){Text("\(c.tr("Headset")) \($0+1)").tag($0)}}
                     HStack{
                         Button(c.language=="RU" ? "Проверить обновления":"Check updates"){c.maintenance("check")}
@@ -510,7 +502,6 @@ struct ContentView: View {
             }
             HStack{
                 Button("USB / Wi-Fi"){c.configureUSB(i)}
-                Button("Graffism"){c.graffiti(i)}
             }
             }
         }.padding(12).frame(maxWidth:.infinity,alignment:.leading)

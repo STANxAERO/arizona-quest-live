@@ -2,7 +2,7 @@
 
 [Русская инструкция](README.ru.md) · [Downloads](https://github.com/STANxAERO/arizona-quest-live/releases)
 
-Local, wireless, single-eye viewing for up to four Meta Quest headsets. Built for teaching VR graffiti at ARIZONA Hip-Hop Culture Center. No cloud relay, subscription, or WebStream VR required. This is an independent launcher around [scrcpy](https://github.com/Genymobile/scrcpy) and Android Debug Bridge (ADB), not a Meta product or a fork of WebStream VR.
+Local, wireless, single-eye viewing for up to four Meta Quest headsets. Created at ARIZONA Hip-Hop Culture Center for general VR viewing. No cloud relay, subscription, or WebStream VR required. This is an independent launcher around [scrcpy](https://github.com/Genymobile/scrcpy) and Android Debug Bridge (ADB), not a Meta product or a fork of WebStream VR.
 
 ## Download and install
 
@@ -21,13 +21,13 @@ Alternatively, run the included Install dependencies.command. Then open ARIZONA 
 2. Connect the desktop/laptop and headset to the same trusted private LAN. Connect **one** headset by USB data cable, put it on, and approve USB debugging for this computer. A new Mac or PC has its own ADB authorization.
 3. Open the launcher. For Headset 1, click **USB / Wi-Fi** (Windows: **Set up USB / Wi-Fi**). Confirm the network ADB setup. This registers the headset by serial number and remembers its current address.
 4. Once Wi-Fi connection succeeds, unplug the cable. Repeat for Headsets 2–4 as needed, one at a time.
-5. Open a VR application such as Graffism. Click **Start all**, or reopen the launcher. Each registered, reachable headset opens in its own window.
+5. Open any VR application. Click **Start all**, or reopen the launcher. Each registered, reachable headset opens in its own window.
 
 ## Daily use
 
 Wake the registered headsets, connect them to the same LAN, launch the VR app, then open Quest Live. The launcher tries known ADB transports and cached addresses, then scans port 5555 on the directly connected private IPv4 LAN (bounded to /24 or smaller), verifies the serial number, and reconnects missing viewers. No router modification or internet connection is required for the video itself. Stop a stream with **Stop**; simply closing its viewer window may trigger automatic reopening. Close the launcher to end all streams.
 
-Both versions support left/right eye, 16:9 crop, a 30 FPS target and automatic reconnection. Eye and aspect ratio changes automatically restart only the affected requested stream; stopped streams stay stopped. The per-headset settings are saved. Headsets 3 and 4 are collapsed by default; expand either header to access its controls. The main window adjusts its height without an internal scroll area. Windows uses rounded graphite panels and blue selection accents. macOS additionally offers quality presets (including a 60 FPS cap), automatically applied to requested streams, a manual restart fallback, and a Graffism shortcut. Actual FPS/latency depend on headset, Wi-Fi and scene.
+Both versions support left/right eye, 16:9 crop, a 30 FPS target and automatic reconnection. Eye and aspect ratio changes automatically restart only the affected requested stream; stopped streams stay stopped. The per-headset settings are saved. Headsets 3 and 4 are collapsed by default; expand either header to access its controls. The main window adjusts its height without an internal scroll area. Windows uses rounded graphite panels and blue selection accents. macOS additionally offers quality presets (including a 60 FPS cap), automatically applied to requested streams, and a manual restart fallback. Actual FPS/latency depend on headset, Wi-Fi and scene.
 
 ## Troubleshooting and safety
 
@@ -41,7 +41,7 @@ Both versions support left/right eye, 16:9 crop, a 30 FPS target and automatic r
 
 ## Build / source
 
-Windows: `windows/Launcher.cs` is the native .NET bootstrap; `QuestLive.ps1` is the WinForms UI, `DiscoverQuest.ps1` the discovery engine. Compile Launcher.cs using .NET Framework csc with `/target:winexe /reference:System.Windows.Forms.dll`; keep the three PowerShell files beside the resulting executable. PowerShell scripts must be UTF-8 with BOM on Windows PowerShell 5.1.
+Windows: `windows/Launcher.cs` is the native .NET bootstrap; `QuestLive.ps1` is the WinForms UI, `DiscoverQuest.ps1` the discovery engine. Compile Launcher.cs using .NET Framework csc with `/target:winexe /reference:System.Windows.Forms.dll /win32icon:AppIcon-A.ico`; keep the PowerShell files and AppIcon-A.ico beside the resulting executable. PowerShell scripts must be UTF-8 with BOM on Windows PowerShell 5.1.
 
 macOS: `bash macos/build.sh` builds an Apple Silicon app using the Xcode Swift toolchain. Python discovery is bundled as a resource; runtime ADB, Python and scrcpy are external Homebrew dependencies.
 
@@ -67,4 +67,4 @@ Select a registered headset and choose **Check ADB** to inspect its connection, 
 
 For an engine update, choose **Stage engine**. The official architecture-specific archive is downloaded from Genymobile's GitHub releases and verified against the release asset SHA-256. The new runtime is installed separately under the application's local data directory; the current one remains untouched. Stop all streams, select a headset, and **Test candidate**. Activation is blocked unless the latest candidate capture test passes and the tested headset still reports the same firmware build. Test each of your headset models/builds before activating; only the latest successful test is enforced. Choose **Activate** manually, then start streams again. **Rollback** selects the previous engine without deleting the staged versions. The first rollback goes to the original engine (Homebrew on Mac, bundled scrcpy on Windows); later rollbacks retain the previously selected managed engine. The standalone managed scrcpy on Mac is independent of Homebrew's scrcpy version, but ADB, Python and FFmpeg still depend on their separate installations.
 
-After a Horizon OS update, update one headset at a time, verify Graffism and the actual live view, then update the next. No future firmware compatibility guarantee is possible. ADB authorization, screen-capture policy, encoder behavior and OS updates can still break the capture path.
+After a Horizon OS update, update one headset at a time, verify the actual live view of your chosen VR application, then update the next. No future firmware compatibility guarantee is possible. ADB authorization, screen-capture policy, encoder behavior and OS updates can still break the capture path.

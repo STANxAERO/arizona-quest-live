@@ -4,7 +4,7 @@
 - Android SDK Platform-Tools (ADB) — Google; [official download and terms](https://developer.android.com/tools/releases/platform-tools). Windows obtains ADB from the upstream scrcpy distribution, macOS through Homebrew's android-platform-tools cask.
 - Python — [Python Software Foundation license](https://docs.python.org/3/license.html); installed separately on macOS.
 - Homebrew — [Homebrew project](https://brew.sh/); dependency installer, not bundled.
-- Meta Quest and Graffism are third-party products. No affiliation, endorsement, redistribution of proprietary Meta casting components, or warranty is implied.
+- Meta Quest is a third-party product. No affiliation, endorsement, redistribution of proprietary Meta casting components, or warranty is implied.
 
 The MIT license in this repository covers only the original launcher source and documentation. Upstream components remain subject to their respective licenses and terms.
 

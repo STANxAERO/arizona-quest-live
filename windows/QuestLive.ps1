@@ -131,6 +131,8 @@ function Adb([string[]]$a,[int]$timeout=6000){
 }
 [Windows.Forms.Application]::EnableVisualStyles()
 $form=New-Object Windows.Forms.Form
+$iconPath=Join-Path $root 'AppIcon-A.ico'
+if(Test-Path -LiteralPath $iconPath){$form.Icon=New-Object Drawing.Icon($iconPath)}
 $form.Text='ARIZONA | QUEST LIVE 4'
 $form.StartPosition='CenterScreen';$form.ClientSize=New-Object Drawing.Size(720,440)
 $form.FormBorderStyle='FixedSingle';$form.MaximizeBox=$false
@@ -430,16 +432,16 @@ $updateTimer.Add_Tick({
    $j=$checkState.job
    if($j.p.HasExited){$j.p.WaitForExit();$checkState.result=$j.out.Result;$j.p.Dispose();$checkState.job=$null;$checkState.next=[datetime]::Now.AddHours(6)
     $v=ConvertFrom-Json -InputObject $checkState.result
-    if($v.latest -and $v.engine -match '^scrcpy ([0-9.]+)'){$ver=$Matches[1];$checkState.available=([version]($v.latest.TrimStart('v')) -gt [version]$ver) -or ([version]($v.app.TrimStart('v')) -gt [version]'0.5.0')}
+    if($v.latest -and $v.engine -match '^scrcpy ([0-9.]+)'){$ver=$Matches[1];$checkState.available=([version]($v.latest.TrimStart('v')) -gt [version]$ver) -or ([version]($v.app.TrimStart('v')) -gt [version]'0.5.1')}
     $maintenanceBtn.Name=if($checkState.available){'Update available'}elseif($checkState.firmware){'Firmware changed'}else{'Maintenance'};$maintenanceBtn.Text=Tr $maintenanceBtn.Name
    }
   }elseif([datetime]::Now -ge $checkState.next){$checkState.job=Start-MaintenanceJob 'check' 0}
  }catch{$checkState.next=[datetime]::Now.AddMinutes(10);$checkState.job=$null}
 })
 $maintenanceBtn.Add_Click({
- $dlg=New-Object Windows.Forms.Form;$dlg.Text=Tr 'Maintenance';$dlg.StartPosition='CenterParent';$dlg.ClientSize=New-Object Drawing.Size(680,430);$dlg.BackColor=$form.BackColor;$dlg.ForeColor=$form.ForeColor;$dlg.Font=$form.Font
+ $dlg=New-Object Windows.Forms.Form;$dlg.Icon=$form.Icon;$dlg.Text=Tr 'Maintenance';$dlg.StartPosition='CenterParent';$dlg.ClientSize=New-Object Drawing.Size(680,430);$dlg.BackColor=$form.BackColor;$dlg.ForeColor=$form.ForeColor;$dlg.Font=$form.Font
  $isRU=$uiState.language -eq 'RU'
- $hint=New-Object Windows.Forms.Label;$hint.SetBounds(16,12,648,50);$hint.Text=if($isRU){'Обновления не устанавливаются автоматически. Для теста захвата и смены движка остановите все потоки. Запустите Graffism в выбранном шлеме.'}else{'No automatic installs. Stop all streams before capture tests or engine changes. Open Graffism in the selected headset.'};$dlg.Controls.Add($hint)
+ $hint=New-Object Windows.Forms.Label;$hint.SetBounds(16,12,648,50);$hint.Text=if($isRU){'Обновления не устанавливаются автоматически. Для теста захвата и смены движка остановите все потоки. Откройте любое VR-приложение в выбранном шлеме.'}else{'No automatic installs. Stop all streams before capture tests or engine changes. Open any VR application in the selected headset.'};$dlg.Controls.Add($hint)
  $select=New-Object Windows.Forms.ComboBox;$select.SetBounds(16,66,200,28);$select.DropDownStyle='DropDownList';foreach($k in 1..4){[void]$select.Items.Add((Tr 'Headset')+' '+$k)};$select.SelectedIndex=0;$dlg.Controls.Add($select)
  $output=New-Object Windows.Forms.TextBox;$output.Multiline=$true;$output.ReadOnly=$true;$output.ScrollBars='Vertical';$output.SetBounds(16,198,648,180);$output.BackColor=$panelColor;$output.ForeColor=$form.ForeColor;$output.Text=$checkState.result;$dlg.Controls.Add($output)
  $ds=@{job=$null;action='';slot=0}
