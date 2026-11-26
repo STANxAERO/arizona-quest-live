@@ -6,6 +6,7 @@ struct Slot: Codable {
     var serial: String
     var address: String
     var eye: String
+    var wide: Bool? = nil
 }
 struct Headset: Codable {
     var serial: String
@@ -119,7 +120,12 @@ final class Controller: ObservableObject {
     @Published var wanted = Array(repeating:false,count:Controller.capacity)
     @Published var searching = false
     @Published var wide = Array(repeating:false,count:Controller.capacity)
-    @Published var quality = "1600 / 30 FPS"
+    @Published var quality = UserDefaults.standard.string(forKey:"quality") ?? "1600 / 30 FPS" {
+        didSet {
+            UserDefaults.standard.set(quality,forKey:"quality")
+            if quality != oldValue { for i in slots.indices where wanted[i] { restart(i) } }
+        }
+    }
     @Published var alert = ""
     private var children: [Process?] = Array(repeating:nil,count:Controller.capacity)
     private var known: [Headset?] = Array(repeating:nil,count:Controller.capacity)
@@ -142,6 +148,7 @@ final class Controller: ObservableObject {
         catch { alert = "Could not read settings: \(error.localizedDescription)" }
         if slots.count > Self.capacity { alert="Settings exceed supported capacity."; slots=Array(slots.prefix(Self.capacity)) }
         while slots.count < Self.capacity { slots.append(Slot(serial:"",address:"",eye:"Left")) }
+        wide = slots.map { $0.wide ?? false }
         if alert.isEmpty { save() }
     }
     func save() {
@@ -277,6 +284,16 @@ final class Controller: ObservableObject {
         p.standardOutput=FileHandle.nullDevice;p.standardError=FileHandle.nullDevice
         do{try p.run()}catch{alert=error.localizedDescription}
     }
+    func setEye(_ i:Int,_ value:String) {
+        guard slots[i].eye != value else { return }
+        slots[i].eye=value;save()
+        if wanted[i] { restart(i) }
+    }
+    func setWide(_ i:Int,_ value:Bool) {
+        guard wide[i] != value else { return }
+        wide[i]=value;slots[i].wide=value;save()
+        if wanted[i] { restart(i) }
+    }
     func restart(_ i: Int) { guard !slots[i].serial.isEmpty else { status[i]="Connect via USB to register";return }; if let p=children[i],p.isRunning{p.terminate()};wanted[i]=true;retryAfter = .distantPast }
 }
 // Template artwork: circular bowed grid for the original view, straight grid for correction.
@@ -311,8 +328,9 @@ private enum ModeArtwork {
 }
 struct ContentView: View {
     @ObservedObject var c=Controller.shared
+    @State private var expanded: Set<Int> = []
     var body: some View {
-        VStack(alignment:.leading,spacing:20) {
+        VStack(alignment:.leading,spacing:12) {
             HStack {
                 VStack(alignment:.leading,spacing:5){
                     Text("ARIZONA  /  QUEST LIVE").font(.system(size:26,weight:.heavy,design:.rounded))
@@ -338,7 +356,8 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent).tint(.green)
                 Button{c.stopAll()}label:{Label(c.tr("Stop all"),systemImage:"stop.fill").frame(maxWidth:.infinity)}.buttonStyle(.bordered)
             }.controlSize(.large)
-            ScrollView { LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12){ ForEach(0..<Controller.capacity,id:\.self){card($0)} } }
+            HStack(alignment:.top,spacing:12){card(0);card(1)}
+            HStack(alignment:.top,spacing:12){card(2);card(3)}
             HStack {
                 Text(c.tr("Quality")).foregroundStyle(.secondary)
                 Picker("",selection:$c.quality){ForEach(["1080 / 30 FPS","1600 / 30 FPS","1600 / 60 FPS"],id:\.self){Text($0)}}.labelsHidden().frame(width:180)
@@ -347,7 +366,7 @@ struct ContentView: View {
                 Button(c.tr("Logs")){NSWorkspace.shared.open(c.root)}
             }
             Text(c.tr("If a reboot disables network ADB, use USB / Wi-Fi setup. For a black screen, open a VR app and restart the stream.")+" "+c.tr("Correction is approximate; switching modes restarts active streams.")).font(.caption).foregroundStyle(.secondary)
-        }.padding(24).frame(width:720,height:710)
+        }.padding(20).frame(width:720).fixedSize(horizontal:false,vertical:true)
             .preferredColorScheme(.dark)
             .onAppear{c.startOnce()}
             .alert("Quest Live",isPresented:Binding(get:{!c.alert.isEmpty},set:{if !$0{c.alert=""}})){Button("OK"){c.alert=""}}message:{Text(c.tr(c.alert))}
@@ -363,19 +382,34 @@ struct ContentView: View {
             .help(name)
     }
     func card(_ i:Int)->some View {
-        VStack(alignment:.leading,spacing:8){
-            HStack {
-                Image(systemName:"visionpro").font(.title2).foregroundStyle(c.running[i] ? .green:.secondary)
-                Text("\(c.tr("Headset")) \(i+1)").font(.title2.bold());Spacer()
-                Circle().fill(c.running[i] ? Color.green:Color.gray).frame(width:9,height:9)
+        VStack(alignment:.leading,spacing:6){
+            if i>=2 {
+                Button {
+                    if expanded.contains(i) { expanded.remove(i) } else { expanded.insert(i) }
+                } label: {
+                    HStack(spacing:8) {
+                        Image(systemName:"visionpro").font(.title3).foregroundStyle(c.running[i] ? Color.green:Color.secondary)
+                        Text("\(c.tr("Headset")) \(i+1)").font(.headline)
+                        Spacer()
+                        Circle().fill(c.running[i] ? Color.green:Color.gray).frame(width:8,height:8)
+                        Image(systemName:expanded.contains(i) ? "chevron.up":"chevron.down").foregroundStyle(.secondary)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel(Text("\(c.tr("Headset")) \(i+1)"))
+            } else {
+                HStack {
+                    Image(systemName:"visionpro").font(.title3).foregroundStyle(c.running[i] ? .green:.secondary)
+                    Text("\(c.tr("Headset")) \(i+1)").font(.headline);Spacer()
+                    Circle().fill(c.running[i] ? Color.green:Color.gray).frame(width:8,height:8)
+                }
             }
-            Text(c.tr(c.status[i])).font(.callout).frame(height:24,alignment:.topLeading)
+            if i<2 || expanded.contains(i) {
+            Text(c.tr(c.status[i])).font(.callout).frame(height:19,alignment:.topLeading)
                 .foregroundStyle(c.running[i] ? Color.green:Color.secondary)
             Text(c.slots[i].address).font(.caption.monospaced()).foregroundStyle(.secondary)
-            Picker(c.tr("Eye"),selection:Binding(get:{c.slots[i].eye},set:{c.slots[i].eye=$0;c.save()})){
+            Picker(c.tr("Eye"),selection:Binding(get:{c.slots[i].eye},set:{c.setEye(i,$0)})){
                 Text(c.tr("Left")).tag("Left");Text(c.tr("Right")).tag("Right")
             }.pickerStyle(.segmented)
-            Toggle(c.tr("Wide crop 16:9"),isOn:$c.wide[i]).toggleStyle(.switch).controlSize(.small)
+            Toggle(c.tr("Wide crop 16:9"),isOn:Binding(get:{c.wide[i]},set:{c.setWide(i,$0)})).toggleStyle(.switch).controlSize(.small)
             HStack{
                 Button(c.tr("Start")){c.start(i)}.buttonStyle(.borderedProminent).tint(.green)
                 Button(c.tr("Stop")){c.stop(i)}
@@ -384,6 +418,7 @@ struct ContentView: View {
             HStack{
                 Button("USB / Wi-Fi"){c.configureUSB(i)}
                 Button("Graffism"){c.graffiti(i)}
+            }
             }
         }.padding(12).frame(maxWidth:.infinity,alignment:.leading)
         .background(Color.white.opacity(0.055),in:RoundedRectangle(cornerRadius:16))

@@ -27,7 +27,7 @@ Alternatively, run the included Install dependencies.command. Then open ARIZONA 
 
 Wake the registered headsets, connect them to the same LAN, launch the VR app, then open Quest Live. The launcher tries known ADB transports and cached addresses, then scans port 5555 on the directly connected private IPv4 LAN (bounded to /24 or smaller), verifies the serial number, and reconnects missing viewers. No router modification or internet connection is required for the video itself. Stop a stream with **Stop**; simply closing its viewer window may trigger automatic reopening. Close the launcher to end all streams.
 
-Both versions support left/right eye, 30 FPS target and automatic reconnection. macOS additionally offers 16:9 crop, quality presets (including a 60 FPS cap), a restart button, and a Graffism shortcut. Change a crop/quality setting and restart the stream to apply it. Actual FPS/latency depend on headset, Wi-Fi and scene.
+Both versions support left/right eye, 16:9 crop, a 30 FPS target and automatic reconnection. Eye and aspect ratio changes automatically restart only the affected requested stream; stopped streams stay stopped. The per-headset settings are saved. Headsets 3 and 4 are collapsed by default; expand either header to access its controls. The main window adjusts its height without an internal scroll area. Windows uses rounded graphite panels and blue selection accents. macOS additionally offers quality presets (including a 60 FPS cap), automatically applied to requested streams, a manual restart fallback, and a Graffism shortcut. Actual FPS/latency depend on headset, Wi-Fi and scene.
 
 ## Troubleshooting and safety
 

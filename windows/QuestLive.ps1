@@ -17,6 +17,7 @@ if($cfg.Count -lt $capacity){
  while($cfg.Count -lt $capacity){$cfg+= [pscustomobject]@{serial="";address="";eye="Left"}}
  $cfg | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding UTF8
 }
+foreach($entry in $cfg){if(!$entry.PSObject.Properties['wide']){$entry|Add-Member -NotePropertyName wide -NotePropertyValue $false}}
 if($Check){ Write-Output ('Settings initialized: '+$cfg.Count); $mutex.ReleaseMutex();$mutex.Dispose();return }
 $viewer=Join-Path $root 'scrcpy\scrcpy.exe'
 $adb=Join-Path $root 'scrcpy\adb.exe'
@@ -44,6 +45,7 @@ $ru=@{
  'Searching…'='Поиск…'
  'Logs'='Журналы'
  'Wide crop 16:9'='Кадр 16:9'
+ 'Applying video settings...'='Применение настроек видео…'
  'Restart with current settings'='Перезапуск с текущими настройками'
  'Set up USB / Wi-Fi'='Настроить USB / Wi-Fi'
  'Mode'='Режим'
@@ -101,7 +103,7 @@ function Tr([string]$key){
  return $key
 }
 function Save-Prefs { $uiState|ConvertTo-Json|Set-Content -LiteralPath $prefs -Encoding UTF8 }
-function Set-Status([int]$i,[string]$key){$slots[$i].statusKey=$key;$slots[$i].status.Text=(Tr $key)}
+function Set-Status([int]$i,[string]$key){$slots[$i].statusKey=$key;$slots[$i].status.Text=(Tr $key);$slots[$i].status.ForeColor=$(if($key -in @('Stream window open','Correction process started')){[Drawing.Color]::FromArgb(121,170,255)}else{$mutedColor})}
 
 function Save-Cfg {
  $tmp=$settings+'.new'
@@ -123,21 +125,43 @@ function Adb([string[]]$a,[int]$timeout=6000){
 [Windows.Forms.Application]::EnableVisualStyles()
 $form=New-Object Windows.Forms.Form
 $form.Text='ARIZONA | QUEST LIVE 4'
-$form.StartPosition='CenterScreen';$form.ClientSize=New-Object Drawing.Size(720,690)
+$form.StartPosition='CenterScreen';$form.ClientSize=New-Object Drawing.Size(720,440)
 $form.FormBorderStyle='FixedSingle';$form.MaximizeBox=$false
-$form.BackColor=[Drawing.Color]::FromArgb(24,26,30);$form.ForeColor=[Drawing.Color]::White
+$form.BackColor=[Drawing.Color]::FromArgb(27,28,32);$form.ForeColor=[Drawing.Color]::FromArgb(240,241,245)
+$panelColor=[Drawing.Color]::FromArgb(39,41,47)
+$idleColor=[Drawing.Color]::FromArgb(55,58,66)
+$accentColor=[Drawing.Color]::FromArgb(48,116,225)
+$mutedColor=[Drawing.Color]::FromArgb(172,177,189)
+Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing @'
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+public static class QuestRounded {
+ public static void Apply(Control c,int radius) {
+  if(c.Width<2||c.Height<2)return;
+  int d=Math.Min(radius*2,Math.Min(c.Width,c.Height));
+  using(var p=new GraphicsPath()){
+   p.AddArc(0,0,d,d,180,90);p.AddArc(c.Width-d,0,d,d,270,90);
+   p.AddArc(c.Width-d,c.Height-d,d,d,0,90);p.AddArc(0,c.Height-d,d,d,90,90);p.CloseFigure();
+   Region old=c.Region;c.Region=new Region(p);if(old!=null)old.Dispose();
+  }
+ }
+}
+'@
+
 $form.Font=New-Object Drawing.Font('Segoe UI',10)
 function Label($text,$x,$y,$w,$h){
  $l=New-Object Windows.Forms.Label;$l.Text=(Tr $text);$l.Name=$text;$l.SetBounds($x,$y,$w,$h);$l.ForeColor=$form.ForeColor;$form.Controls.Add($l);return $l
 }
 function Button($text,$x,$y,$w,$h){
- $b=New-Object Windows.Forms.Button;$b.Text=(Tr $text);$b.Name=$text;$b.SetBounds($x,$y,$w,$h);$b.FlatStyle='Flat';$b.BackColor=[Drawing.Color]::FromArgb(46,50,56);$b.ForeColor=[Drawing.Color]::White;$form.Controls.Add($b);return $b
+ $b=New-Object Windows.Forms.Button;$b.Text=(Tr $text);$b.Name=$text;$b.SetBounds($x,$y,$w,$h);$b.FlatStyle='Flat';$b.FlatAppearance.BorderSize=0;$b.BackColor=$idleColor;$b.ForeColor=$form.ForeColor;$b.UseVisualStyleBackColor=$false;$form.Controls.Add($b);[QuestRounded]::Apply($b,7);return $b
 }
 $h=Label 'QUEST LIVE / ARIZONA' 20 14 330 38
 $h.Font=New-Object Drawing.Font('Segoe UI',18,[Drawing.FontStyle]::Bold)
 $null=Label 'Auto discovery • Wi-Fi • one eye • auto reconnect' 22 56 470 25
 $all=Button 'Start all' 20 90 335 40
-$all.BackColor=[Drawing.Color]::FromArgb(27,112,66)
+$all.BackColor=$accentColor
 $stopAll=Button 'Stop all' 365 90 335 40
 $ruBtn=Button 'RU' 606 12 45 30;$enBtn=Button 'EN' 655 12 45 30
 $modeLabel=Label 'Mode' 505 47 93 30
@@ -173,7 +197,7 @@ foreach($btn in @($fishBtn,$corrBtn)){
   }finally{$g.Restore($saved);$outline.Dispose();$pen.Dispose();$grid.Dispose()}
  })
 }
-$slots=@();$streams=@($null)*$capacity;$want=@($false)*$capacity;$missing=@(0)*$capacity
+$slots=@();$streams=@($null)*$capacity;$want=@($false)*$capacity;$missing=@(0)*$capacity;$expanded=@($true,$true,$false,$false)
 $state=@{job=$null;out=$null;err=$null;next=[datetime]::MinValue;closing=$false}
 function Stop-Slot([int]$i){
  $want[$i]=$false;$p=$streams[$i]
@@ -189,10 +213,11 @@ function Open-Viewer([int]$i,$info){
  if(!$want[$i] -or ($streams[$i] -and !$streams[$i].HasExited)){return}
  if($info.override){Set-Status $i ('Non-default display size: '+$info.override);return}
  $cfg[$i].address=$info.address;$slots[$i].addr.Text=$info.address
- $cfg[$i].eye=if($slots[$i].eye.SelectedIndex -eq 1){'Right'}else{'Left'}
  Save-Cfg
  $half=[int]($info.w/2);$x=if($cfg[$i].eye -eq 'Right'){$half}else{0}
- $crop='{0}:{1}:{2}:0' -f $half,$info.h,$x
+ $height=[int]$info.h;$y=0
+ if($cfg[$i].wide -and !$uiState.corrected){$height=[int]([Math]::Floor(($half*9/16)/2)*2);$y=[int]([Math]::Floor((($info.h-$height)/2)/2)*2)}
+ $crop='{0}:{1}:{2}:{3}' -f $half,$height,$x,$y
  $p=New-Object Diagnostics.Process
  $p.StartInfo.FileName=$viewer;$p.StartInfo.WorkingDirectory=Split-Path $viewer
  $capArgs="--serial=$($info.address) --crop=$crop --no-audio --no-control --video-codec=h264 --max-size=1600 --max-fps=30 --video-bit-rate=5M --window-height=660 --window-title=ARIZONA-Quest-$($i+1)"
@@ -201,29 +226,65 @@ function Open-Viewer([int]$i,$info){
   $helper=Join-Path $root 'LensViewer.exe'
   if(!$ff -or !(Test-Path -LiteralPath $helper)){Set-Status $i 'Correction needs ffplay. Install FFmpeg (see README).';$want[$i]=$false;return}
   $p.StartInfo.FileName=$helper
-  $p.StartInfo.Arguments="$PID ""$($ff.Source)"" ""$viewer"" normal ARIZONA-Quest-$($i+1) $capArgs"
+  $wideArg=if($cfg[$i].wide){'wide'}else{'normal'}
+  $p.StartInfo.Arguments="$PID ""$($ff.Source)"" ""$viewer"" $wideArg ARIZONA-Quest-$($i+1) $capArgs"
  }else{$p.StartInfo.Arguments=$capArgs}
  $p.StartInfo.UseShellExecute=$false;$p.StartInfo.CreateNoWindow=$true
  [void]$p.Start();$streams[$i]=$p;$missing[$i]=0
  Set-Status $i $(if($uiState.corrected){'Correction process started'}else{'Starting video...'})
 }
+function Restart-Active([int]$i){
+ if(!$want[$i]){return}
+ $p=$streams[$i]
+ if($p -and !$p.HasExited){if(!$p.CloseMainWindow()){$p.Kill()}}
+ Set-Status $i 'Applying video settings...'
+ $state.next=[datetime]::MinValue
+}
+function Refresh-Slot([int]$i){
+ $u=$slots[$i]
+ $u.title.Text=(Tr 'Headset')+' '+($i+1)+$(if($i -ge 2){if($expanded[$i]){'    ▲'}else{'    ▼'}}else{''})
+ $u.status.Text=(Tr $u.statusKey)
+ $u.left.BackColor=$(if($cfg[$i].eye -ne 'Right'){$accentColor}else{$idleColor})
+ $u.right.BackColor=$(if($cfg[$i].eye -eq 'Right'){$accentColor}else{$idleColor})
+ $u.wide.BackColor=$(if($cfg[$i].wide){$accentColor}else{$idleColor})
+}
+function Set-Eye([int]$i,[string]$eye){
+ if($cfg[$i].eye -eq $eye){return}
+ $cfg[$i].eye=$eye;Save-Cfg;Refresh-Slot $i;Restart-Active $i
+}
+function Toggle-Wide([int]$i){
+ $cfg[$i].wide=(!$cfg[$i].wide);Save-Cfg;Refresh-Slot $i;Restart-Active $i
+}
 for($i=0;$i -lt $capacity;$i++){
- $x=20+345*($i%2)
- $dy=250*[int][Math]::Floor($i/2)
- $title=Label ("Headset "+($i+1)) $x (148+$dy) 335 27
- $title.Font=New-Object Drawing.Font('Segoe UI',14,[Drawing.FontStyle]::Bold)
- $addr=Label ([string]$cfg[$i].address) $x (181+$dy) 335 25
- $addr.ForeColor=[Drawing.Color]::LightGray
- $eye=New-Object Windows.Forms.ComboBox;$eye.SetBounds($x,(210+$dy),335,30);$eye.DropDownStyle='DropDownList'
- [void]$eye.Items.Add((Tr 'Left eye'));[void]$eye.Items.Add((Tr 'Right eye'));$eye.SelectedIndex=0
- if($cfg[$i].eye -eq 'Right'){$eye.SelectedIndex=1};$form.Controls.Add($eye)
- $go=Button 'Start' $x (250+$dy) 210 36;$stop=Button 'Stop' ($x+220) (250+$dy) 115 36
- $usb=Button 'Set up USB / Wi-Fi' $x (294+$dy) 335 32
- $status=Label $(if($cfg[$i].serial){'Stopped'}else{'Connect via USB to register'}) $x (336+$dy) 335 45
- $slots+=@{title=$title;addr=$addr;eye=$eye;go=$go;stop=$stop;usb=$usb;status=$status;statusKey=$(if($cfg[$i].serial){'Stopped'}else{'Connect via USB to register'})}
- $go.Tag=$i;$stop.Tag=$i;$usb.Tag=$i
+ $x=20+345*($i%2);$top=if($i -lt 2){144}else{356}
+ $panel=New-Object Windows.Forms.Panel
+ $panel.SetBounds($x,$top,335,202);$panel.BackColor=$panelColor;$form.Controls.Add($panel);$panel.SendToBack();[QuestRounded]::Apply($panel,14)
+ $title=Button ("Headset "+($i+1)) ($x+12) ($top+10) 311 29
+ $title.TextAlign=[Drawing.ContentAlignment]::MiddleLeft
+ $title.Font=New-Object Drawing.Font('Segoe UI',12,[Drawing.FontStyle]::Bold)
+ $title.BackColor=$panelColor
+ $addr=Label ([string]$cfg[$i].address) ($x+12) ($top+66) 311 18
+ $addr.ForeColor=$mutedColor;$addr.BackColor=$panelColor
+ $status=Label $(if($cfg[$i].serial){'Stopped'}else{'Connect via USB to register'}) ($x+12) ($top+42) 311 22
+ $status.ForeColor=$mutedColor;$status.BackColor=$panelColor
+ $left=Button 'Left' ($x+12) ($top+91) 97 29
+ $right=Button 'Right' ($x+113) ($top+91) 97 29
+ $wide=Button 'Wide crop 16:9' ($x+214) ($top+91) 109 29
+ $go=Button 'Start' ($x+12) ($top+126) 152 29;$go.BackColor=$accentColor
+ $stop=Button 'Stop' ($x+170) ($top+126) 153 29
+ $usb=Button 'Set up USB / Wi-Fi' ($x+12) ($top+161) 311 29
+ foreach($ctrl in @($title,$addr,$status,$left,$right,$wide,$go,$stop,$usb)){
+  $cx=$ctrl.Left-$x;$cy=$ctrl.Top-$top
+  $panel.Controls.Add($ctrl);$ctrl.Left=$cx;$ctrl.Top=$cy
+ }
+ $slots+=@{panel=$panel;title=$title;addr=$addr;left=$left;right=$right;wide=$wide;go=$go;stop=$stop;usb=$usb;status=$status;body=@($addr,$status,$left,$right,$wide,$go,$stop,$usb);statusKey=$(if($cfg[$i].serial){'Stopped'}else{'Connect via USB to register'})}
+ $go.Tag=$i;$stop.Tag=$i;$usb.Tag=$i;$left.Tag=$i;$right.Tag=$i;$wide.Tag=$i;$title.Tag=$i
  $go.Add_Click({param($sender,$e) Request-Slot ([int]$sender.Tag)})
  $stop.Add_Click({param($sender,$e) Stop-Slot ([int]$sender.Tag)})
+ $left.Add_Click({param($sender,$e) Set-Eye ([int]$sender.Tag) 'Left'})
+ $right.Add_Click({param($sender,$e) Set-Eye ([int]$sender.Tag) 'Right'})
+ $wide.Add_Click({param($sender,$e) Toggle-Wide ([int]$sender.Tag)})
+ if($i -ge 2){$title.Add_Click({param($sender,$e)$j=[int]$sender.Tag;$expanded[$j]=!$expanded[$j];Refresh-Layout;Refresh-Slot $j})}
  $usb.Add_Click({
   param($sender,$e)
   $j=[int]$sender.Tag
@@ -248,13 +309,22 @@ for($i=0;$i -lt $capacity;$i++){
  })
 }
 
-function Refresh-Language {
- foreach($c in $form.Controls){if($c -is [Windows.Forms.Button] -or $c -is [Windows.Forms.Label]){if($c.Name -and $ru.ContainsKey($c.Name)){$c.Text=(Tr $c.Name)}}}
+function Refresh-Layout {
  for($k=0;$k -lt $capacity;$k++){
-  $u=$slots[$k];$u.title.Text=(Tr 'Headset')+' '+($k+1);$u.status.Text=(Tr $u.statusKey)
-  $idx=$u.eye.SelectedIndex;$u.eye.Items.Clear();[void]$u.eye.Items.Add((Tr 'Left eye'));[void]$u.eye.Items.Add((Tr 'Right eye'));$u.eye.SelectedIndex=[Math]::Max(0,$idx)
+  $u=$slots[$k];$open=$expanded[$k]
+  foreach($ctrl in $u.body){$ctrl.Visible=$open}
+  $u.panel.Height=$(if($open){202}else{49})
+  [QuestRounded]::Apply($u.panel,14)
  }
- $active=[Drawing.Color]::FromArgb(27,112,66);$idle=[Drawing.Color]::FromArgb(46,50,56)
+ $bottom=if($expanded[2] -or $expanded[3]){568}else{415}
+ if($footer){$footer.Top=$bottom;$form.ClientSize=New-Object Drawing.Size(720,($bottom+39))}
+}
+function Refresh-Language {
+ $controls=@($form.Controls | ForEach-Object {$_})
+ foreach($u in $slots){$controls+=@($u.panel.Controls | ForEach-Object {$_})}
+ foreach($c in $controls){if($c -is [Windows.Forms.Button] -or $c -is [Windows.Forms.Label]){if($c.Name -and $ru.ContainsKey($c.Name)){$c.Text=(Tr $c.Name)}}}
+ for($k=0;$k -lt $capacity;$k++){Refresh-Slot $k}
+ $active=$accentColor;$idle=$idleColor
  $ruBtn.BackColor=$(if($uiState.language -eq 'RU'){$active}else{$idle})
  $enBtn.BackColor=$(if($uiState.language -eq 'EN'){$active}else{$idle})
  $fishBtn.BackColor=$(if(!$uiState.corrected){$active}else{$idle})
@@ -326,7 +396,9 @@ $timer.Add_Tick({
   }
  }catch{$state.next=[datetime]::Now.AddSeconds(7);$form.Text='ARIZONA | QUEST LIVE 4 - retrying'}
 })
-$null=Label 'Correction is approximate; switching modes restarts active streams.' 20 650 680 30
+$footer=Label 'Correction is approximate; switching modes restarts active streams.' 20 415 680 30
+$footer.ForeColor=$mutedColor
+Refresh-Layout
 Refresh-Language
 $form.Add_Shown({if(!$NoAuto){for($k=0;$k -lt $capacity;$k++){Request-Slot $k}};$timer.Start()})
 $form.Add_FormClosed({
