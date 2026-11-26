@@ -1,0 +1,11 @@
+dist/
+build/
+__pycache__/
+*.pyc
+*.log
+settings*.json
+.DS_Store
+*.zip
+*.exe
+scrcpy/
+*.app/
